@@ -1,7 +1,6 @@
 {
     "build": {
-        "builder": "NIXPACKS",
-        "buildCommand": "pip install -r requirements.txt && playwright install chromium && playwright install-deps chromium"
+        "builder": "NIXPACKS"
     },
     "deploy": {
         "startCommand": "python run_signals.py",
