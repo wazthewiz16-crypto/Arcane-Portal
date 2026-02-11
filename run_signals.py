@@ -1,5 +1,6 @@
 """Run scraper and generate signals - Manual execution"""
 import sys
+import os
 from pathlib import Path
 
 # Add project root to path
