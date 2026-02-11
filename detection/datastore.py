@@ -1,89 +1,173 @@
-"""SQLite datastore for scraper results"""
+"""SQLite/PostgreSQL datastore for scraper results"""
 import sqlite3
+import os
 from pathlib import Path
 from datetime import datetime
 from contextlib import contextmanager
 
-DB_PATH = Path("data/mango_scraper.db")
+# Check if we should use PostgreSQL (Railway) or SQLite (local)
+DATABASE_URL = os.getenv('DATABASE_URL')
+USE_POSTGRES = DATABASE_URL is not None
+
+if USE_POSTGRES:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    print(f"Using PostgreSQL database")
+else:
+    DB_PATH = Path("data/mango_scraper.db")
+    print(f"Using SQLite database: {DB_PATH}")
 
 class MangoDataStore:
     def __init__(self):
-        DB_PATH.parent.mkdir(exist_ok=True)
+        if not USE_POSTGRES:
+            DB_PATH.parent.mkdir(exist_ok=True)
         self.init_db()
     
     def init_db(self):
         """Create tables if they don't exist"""
         with self.get_connection() as conn:
-            # Scrapes table (existing)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS scrapes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    symbol TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    timeframe TEXT NOT NULL,
-                    tf_type TEXT NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    open REAL,
-                    high REAL,
-                    low REAL,
-                    close REAL,
-                    volume REAL,
-                    mango_d1 REAL,
-                    mango_d2 REAL,
-                    entry_up REAL,
-                    entry_down REAL,
-                    candle_time TEXT,
-                    UNIQUE(name, timeframe, candle_time)
-                )
-            """)
-            
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_scrapes_lookup 
-                ON scrapes(name, timeframe, candle_time)
-            """)
-            
-            # Signals table (new)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS signals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    asset_name TEXT NOT NULL,
-                    asset_type TEXT NOT NULL,
-                    signal_type TEXT NOT NULL,
-                    confidence REAL NOT NULL,
-                    entry_price REAL NOT NULL,
-                    take_profit REAL,
-                    stop_loss REAL,
-                    rr_ratio REAL,
-                    entry_zone_low REAL,
-                    entry_zone_high REAL,
-                    htf TEXT NOT NULL,
-                    ltf TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    entry_time TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    alerted_discord BOOLEAN DEFAULT 0
-                )
-            """)
-            
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_signals_lookup 
-                ON signals(asset_name, status, entry_time)
-            """)
+            if USE_POSTGRES:
+                # PostgreSQL syntax
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS scrapes (
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        timeframe TEXT NOT NULL,
+                        tf_type TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        open REAL,
+                        high REAL,
+                        low REAL,
+                        close REAL,
+                        volume REAL,
+                        mango_d1 REAL,
+                        mango_d2 REAL,
+                        entry_up REAL,
+                        entry_down REAL,
+                        candle_time TEXT,
+                        UNIQUE(name, timeframe, candle_time)
+                    )
+                """)
+                
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_scrapes_lookup 
+                    ON scrapes(name, timeframe, candle_time)
+                """)
+                
+                # Signals table
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS signals (
+                        id SERIAL PRIMARY KEY,
+                        asset_name TEXT NOT NULL,
+                        asset_type TEXT NOT NULL,
+                        signal_type TEXT NOT NULL,
+                        confidence REAL NOT NULL,
+                        entry_price REAL NOT NULL,
+                        take_profit REAL,
+                        stop_loss REAL,
+                        rr_ratio REAL,
+                        entry_zone_low REAL,
+                        entry_zone_high REAL,
+                        htf TEXT NOT NULL,
+                        ltf TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        entry_time TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        alerted_discord BOOLEAN DEFAULT FALSE
+                    )
+                """)
+                
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_signals_lookup 
+                    ON signals(asset_name, status, entry_time)
+                """)
+            else:
+                # SQLite syntax (existing code)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS scrapes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        symbol TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        timeframe TEXT NOT NULL,
+                        tf_type TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        open REAL,
+                        high REAL,
+                        low REAL,
+                        close REAL,
+                        volume REAL,
+                        mango_d1 REAL,
+                        mango_d2 REAL,
+                        entry_up REAL,
+                        entry_down REAL,
+                        candle_time TEXT,
+                        UNIQUE(name, timeframe, candle_time)
+                    )
+                """)
+                
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_scrapes_lookup 
+                    ON scrapes(name, timeframe, candle_time)
+                """)
+                
+                # Signals table (new)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS signals (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        asset_name TEXT NOT NULL,
+                        asset_type TEXT NOT NULL,
+                        signal_type TEXT NOT NULL,
+                        confidence REAL NOT NULL,
+                        entry_price REAL NOT NULL,
+                        take_profit REAL,
+                        stop_loss REAL,
+                        rr_ratio REAL,
+                        entry_zone_low REAL,
+                        entry_zone_high REAL,
+                        htf TEXT NOT NULL,
+                        ltf TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        entry_time TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        alerted_discord BOOLEAN DEFAULT 0
+                    )
+                """)
+                
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_signals_lookup 
+                    ON signals(asset_name, status, entry_time)
+                """)
     
     @contextmanager
     def get_connection(self):
         """Context manager for DB connections"""
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        if USE_POSTGRES:
+            conn = psycopg2.connect(DATABASE_URL)
+            conn.autocommit = False
+            cursor = conn.cursor()
+            try:
+                yield cursor
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cursor.close()
+                conn.close()
+        else:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
     
     def save_scrape(self, scrape_data):
         """Save a single scrape result"""
