@@ -138,8 +138,12 @@ class TradingViewScraper:
                     # Validate data (especially for 1D)
                     close_price = data['PlotValues'].get('Close')
                     
-                    # Check if price is valid (not $1.00 or None)
-                    if close_price and close_price > 5:  # Valid price
+                    # Check if price is valid (not $1.00 exactly or None)
+                    # Allow low prices for assets like DOGE, XRP (< $5)
+                    # But reject obvious errors like exactly $1.00
+                    is_valid = close_price is not None and close_price != 1.0
+                    
+                    if is_valid:
                         break  # Data is good, exit retry loop
                     elif attempt < max_retries - 1:
                         # Invalid data, retry
