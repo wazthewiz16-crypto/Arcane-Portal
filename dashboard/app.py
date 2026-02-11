@@ -319,7 +319,8 @@ def render_asset_monitor():
                     
                     if data.get('ltf'):
                         ltf = data['ltf']
-                        st.metric("Price", f"${ltf.get('close', 0):,.2f}")
+                        precision = asset.get('precision', 2)
+                        st.metric("Price", f"${ltf.get('close', 0):,.{precision}f}")
                         
                         # Show if in entry zone
                         if ltf.get('entry_up') and ltf.get('entry_down'):
