@@ -1,0 +1,55 @@
+# Railway Ignore File
+# Files and directories to exclude from deployment
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation (keep deployment guide)
+*.md
+!RAILWAY_DEPLOYMENT.md
+!README.md
+
+# Local development
+.env.local
+*.local
+
+# Logs
+*.log
+
+# Test files
+tests/
+test_*.py
+*_test.py

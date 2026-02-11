@@ -1,0 +1,18 @@
+# Core Dependencies
+playwright==1.41.0
+streamlit==1.31.0
+pandas==2.2.0
+python-dotenv==1.0.0
+pytz==2024.1
+
+# Database
+sqlalchemy==2.0.25
+
+# HTTP Requests
+requests==2.31.0
+
+# Async Support
+asyncio==3.4.3
+
+# Logging
+colorlog==6.8.2
