@@ -1,2 +1,2 @@
-web: streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
+web: python start_streamlit.py
 worker: python run_signals.py
