@@ -313,7 +313,9 @@ def render_asset_monitor():
             with cols[idx % 3]:
                 with st.container():
                     st.subheader(f"{name}")
-                    st.caption(f"{asset['type'].upper()} • {asset['htf']}/{asset['ltf']}")
+                    htf_tf = data.get('htf', {}).get('timeframe', 'HTF') if data.get('htf') else 'HTF'
+                    ltf_tf = data.get('ltf', {}).get('timeframe', 'LTF') if data.get('ltf') else 'LTF'
+                    st.caption(f"{asset['type'].upper()} • {htf_tf}/{ltf_tf}")
                     
                     if data.get('ltf'):
                         ltf = data['ltf']
