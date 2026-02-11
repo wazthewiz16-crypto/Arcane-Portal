@@ -97,7 +97,7 @@ class MangoDataStore:
             
             conn.execute("""
                 INSERT OR REPLACE INTO scrapes (
-                    symbol, name, timeframe, tf_type, timestamp,
+                symbol, name, timeframe, tf_type, timestamp,
                     open, high, low, close, volume,
                     mango_d1, mango_d2, entry_up, entry_down, candle_time
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -105,7 +105,7 @@ class MangoDataStore:
                 scrape_data['symbol'],
                 scrape_data['name'],
                 scrape_data['timeframe'],
-                scrape_data['tf_type'],
+                scrape_data.get('tf_type', 'general'),  # Default to 'general' if not provided
                 scrape_data['timestamp'],
                 pv.get('Open'),
                 pv.get('High'),
