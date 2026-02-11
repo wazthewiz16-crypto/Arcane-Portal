@@ -34,8 +34,11 @@ async def run_scraper_and_detect():
     scraper = TradingViewScraper()
     assets = get_active_assets()
     
+    # Smart scheduling (can be disabled via environment variable)
+    use_smart_scheduling = os.getenv('USE_SMART_SCHEDULING', 'true').lower() == 'true'
+    
     try:
-        results = await scraper.scrape_all_assets(assets)
+        results = await scraper.scrape_all_assets(assets, use_smart_scheduling=use_smart_scheduling)
         
         if results:
             print(f"✅ Scraped {len(results)} data points")
@@ -44,7 +47,10 @@ async def run_scraper_and_detect():
             datastore.save_scrapes(results)
             print(f"✅ Saved to database")
         else:
-            print("❌ No data scraped. Check your tv_state.json file.")
+            if use_smart_scheduling:
+                print("⏭️  No timeframes needed scraping at this time")
+            else:
+                print("❌ No data scraped. Check your tv_state.json file.")
             return
             
     except Exception as e:

@@ -71,17 +71,26 @@ class TradingViewScraper:
                 
                 tv_timeframe = timeframe_map.get(timeframe, timeframe)
                 
-                # Switch timeframe (optimized timing)
+                # Switch timeframe
                 await page.keyboard.type(tv_timeframe)
                 await page.keyboard.press("Enter")
-                await asyncio.sleep(2)  # Reduced from 4s to 2s
                 
-                # Hover current candle
-                await page.mouse.move(1150, 400)
-                await asyncio.sleep(0.5)  # Reduced from 1s to 0.5s
+                # Wait for timeframe to load (longer for daily/4D charts)
+                if timeframe in ['1d', '4d']:
+                    await asyncio.sleep(4)  # Daily charts need more time to load
+                else:
+                    await asyncio.sleep(2)
                 
-                # Extract data
-                data = await page.evaluate(r"""(() => {
+                # Hover current candle (with retry for 1D)
+                max_retries = 3 if timeframe == '1d' else 1
+                data = None
+                
+                for attempt in range(max_retries):
+                    await page.mouse.move(1150, 400)
+                    await asyncio.sleep(1 if timeframe in ['1d', '4d'] else 0.5)
+                    
+                    # Extract data
+                    data = await page.evaluate(r"""(() => {
                     const res = { PlotValues: {}, Timestamp: new Date().toISOString() };
                     const txt = document.body.innerText;
                     
@@ -125,6 +134,20 @@ class TradingViewScraper:
                     
                     return res;
                 })()""")
+                    
+                    # Validate data (especially for 1D)
+                    close_price = data['PlotValues'].get('Close')
+                    
+                    # Check if price is valid (not $1.00 or None)
+                    if close_price and close_price > 5:  # Valid price
+                        break  # Data is good, exit retry loop
+                    elif attempt < max_retries - 1:
+                        # Invalid data, retry
+                        logger.warning(f"⚠️  {name} [{timeframe}] attempt {attempt + 1}: Invalid price ${close_price}, retrying...")
+                        await asyncio.sleep(1)  # Wait before retry
+                    else:
+                        # Last attempt failed
+                        logger.error(f"✗ {name} [{timeframe}]: Failed to get valid price after {max_retries} attempts")
                 
                 result = {
                     "symbol": symbol,
@@ -145,17 +168,42 @@ class TradingViewScraper:
                 await context.close()
                 await browser.close()
     
-    async def scrape_all_assets(self, assets):
-        """Scrape all assets across all configured timeframes (OPTIMIZED)"""
+    async def scrape_all_assets(self, assets, use_smart_scheduling=True):
+        """Scrape all assets across configured timeframes (with optional smart scheduling)"""
+        from scraper.scheduler import TimeframeScheduler
+        
         results = []
         total_assets = len(assets)
+        
+        # Initialize scheduler if using smart scheduling
+        scheduler = TimeframeScheduler() if use_smart_scheduling else None
+        
+        if use_smart_scheduling:
+            timeframes_to_scrape = scheduler.get_timeframes_to_scrape()
+            print(f"\n🧠 SMART SCHEDULING ENABLED")
+            print(f"   Timeframes to scrape: {timeframes_to_scrape}")
+            print(f"   Skipping: {[tf for tf in ['3m', '15m', '1h', '4h', '12h', '1d', '4d'] if tf not in timeframes_to_scrape]}")
+            print()
+            
+            if not timeframes_to_scrape:
+                print("⏭️  No timeframes need scraping right now. Skipping this run.")
+                return []
         
         for idx, asset in enumerate(assets, 1):
             logger.info(f"Scraping {idx}/{total_assets}: {asset['name']}")
             print(f"\n  [{idx}/{total_assets}] {asset['name']} - {asset['type'].upper()}")
             
-            # Scrape all timeframes for this asset (sequential for reliability)
-            for timeframe in asset['timeframes']:
+            # Filter timeframes based on smart scheduling
+            timeframes_for_asset = asset['timeframes']
+            if use_smart_scheduling:
+                timeframes_for_asset = [tf for tf in asset['timeframes'] if tf in timeframes_to_scrape]
+            
+            if not timeframes_for_asset:
+                print(f"    ⏭️  No timeframes to scrape for this asset")
+                continue
+            
+            # Scrape filtered timeframes for this asset
+            for timeframe in timeframes_for_asset:
                 data = await self.scrape_asset(asset["symbol"], asset["name"], timeframe)
                 if data:
                     results.append(data)
@@ -163,8 +211,8 @@ class TradingViewScraper:
                 else:
                     print(f"    ✗ {timeframe} failed (no data)")
             
-            # Minimal delay between assets (reduced from 2s to 0.5s)
-            if idx < total_assets:  # No delay after last asset
+            # Minimal delay between assets
+            if idx < total_assets:
                 await asyncio.sleep(0.5)
         
         logger.info(f"Scrape completed: {len(results)} timeframes")
