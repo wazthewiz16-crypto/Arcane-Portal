@@ -4,7 +4,7 @@ FROM python:3.9-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for Playwright
+# Install system dependencies for Playwright (all at once)
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -28,6 +28,12 @@ RUN apt-get update && apt-get install -y \
     libxkbcommon0 \
     libxrandr2 \
     xdg-utils \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxext6 \
+    libxrender1 \
+    libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -36,9 +42,8 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers
-RUN playwright install chromium
-RUN playwright install-deps chromium
+# Install Playwright browsers (chromium only, skip deps since we installed them above)
+RUN playwright install chromium --with-deps
 
 # Copy application code
 COPY . .
