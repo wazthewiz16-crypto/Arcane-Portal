@@ -58,5 +58,5 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 ENV HEADLESS_BROWSER=true
 
-# Run the application
-CMD ["python", "run_signals.py"]
+# Run the application (overridden by Railway Custom Start Command)
+# CMD ["python", "run_signals.py"]

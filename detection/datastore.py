@@ -28,7 +28,7 @@ class MangoDataStore:
         with self.get_connection() as conn:
             if USE_POSTGRES:
                 # PostgreSQL syntax
-                conn.execute("""
+                self._execute_query(conn, """
                     CREATE TABLE IF NOT EXISTS scrapes (
                         id SERIAL PRIMARY KEY,
                         symbol TEXT NOT NULL,
@@ -50,13 +50,13 @@ class MangoDataStore:
                     )
                 """)
                 
-                conn.execute("""
+                self._execute_query(conn, """
                     CREATE INDEX IF NOT EXISTS idx_scrapes_lookup 
                     ON scrapes(name, timeframe, candle_time)
                 """)
                 
                 # Signals table
-                conn.execute("""
+                self._execute_query(conn, """
                     CREATE TABLE IF NOT EXISTS signals (
                         id SERIAL PRIMARY KEY,
                         asset_name TEXT NOT NULL,
@@ -79,13 +79,13 @@ class MangoDataStore:
                     )
                 """)
                 
-                conn.execute("""
+                self._execute_query(conn, """
                     CREATE INDEX IF NOT EXISTS idx_signals_lookup 
                     ON signals(asset_name, status, entry_time)
                 """)
             else:
                 # SQLite syntax (existing code)
-                conn.execute("""
+                self._execute_query(conn, """
                     CREATE TABLE IF NOT EXISTS scrapes (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         symbol TEXT NOT NULL,
@@ -107,13 +107,13 @@ class MangoDataStore:
                     )
                 """)
                 
-                conn.execute("""
+                self._execute_query(conn, """
                     CREATE INDEX IF NOT EXISTS idx_scrapes_lookup 
                     ON scrapes(name, timeframe, candle_time)
                 """)
                 
                 # Signals table (new)
-                conn.execute("""
+                self._execute_query(conn, """
                     CREATE TABLE IF NOT EXISTS signals (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         asset_name TEXT NOT NULL,
@@ -136,7 +136,7 @@ class MangoDataStore:
                     )
                 """)
                 
-                conn.execute("""
+                self._execute_query(conn, """
                     CREATE INDEX IF NOT EXISTS idx_signals_lookup 
                     ON signals(asset_name, status, entry_time)
                 """)
