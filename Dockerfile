@@ -51,6 +51,7 @@ COPY . .
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV HEADLESS_BROWSER=true
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 # Run the application
 CMD ["python", "run_signals.py"]
