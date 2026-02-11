@@ -147,15 +147,13 @@ class MangoDataStore:
         if USE_POSTGRES:
             conn = psycopg2.connect(DATABASE_URL)
             conn.autocommit = False
-            cursor = conn.cursor()
             try:
-                yield cursor
+                yield conn
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
             finally:
-                cursor.close()
                 conn.close()
         else:
             conn = sqlite3.connect(DB_PATH)
@@ -169,6 +167,46 @@ class MangoDataStore:
             finally:
                 conn.close()
     
+    def _execute_query(self, conn, query, params=None):
+        """Execute query with database-specific syntax"""
+        if USE_POSTGRES:
+            # Convert ? to %s for PostgreSQL
+            pg_query = query.replace('?', '%s')
+            # Convert INSERT OR REPLACE to INSERT ... ON CONFLICT
+            if 'INSERT OR REPLACE' in pg_query:
+                pg_query = pg_query.replace('INSERT OR REPLACE', 'INSERT')
+                if 'scrapes' in pg_query:
+                    pg_query = pg_query.replace(
+                        ') VALUES',
+                        ') VALUES'
+                    ) + ' ON CONFLICT (name, timeframe, candle_time) DO UPDATE SET ' + \
+                        'symbol=EXCLUDED.symbol, tf_type=EXCLUDED.tf_type, timestamp=EXCLUDED.timestamp, ' + \
+                        'open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, close=EXCLUDED.close, ' + \
+                        'volume=EXCLUDED.volume, mango_d1=EXCLUDED.mango_d1, mango_d2=EXCLUDED.mango_d2, ' + \
+                        'entry_up=EXCLUDED.entry_up, entry_down=EXCLUDED.entry_down'
+            
+            # Handle last_insert_rowid() for PostgreSQL
+            if 'last_insert_rowid()' in pg_query:
+                pg_query = pg_query.replace('last_insert_rowid()', 'lastval()')
+            
+            cursor = conn.cursor()
+            cursor.execute(pg_query, params or ())
+            return cursor
+        else:
+            return conn.execute(query, params or ())
+    
+    def _fetch_query(self, conn, query, params=None):
+        """Execute SELECT query and return results"""
+        cursor = self._execute_query(conn, query, params)
+        if USE_POSTGRES:
+            # Fetch all and convert to dict
+            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+            rows = cursor.fetchall()
+            return [dict(zip(columns, row)) for row in rows]
+        else:
+            # SQLite already returns Row objects
+            return [dict(row) for row in cursor.fetchall()]
+    
     def save_scrape(self, scrape_data):
         """Save a single scrape result"""
         with self.get_connection() as conn:
@@ -179,7 +217,7 @@ class MangoDataStore:
                 scrape_data['timeframe']
             )
             
-            conn.execute("""
+            self._execute_query(conn, """
                 INSERT OR REPLACE INTO scrapes (
                 symbol, name, timeframe, tf_type, timestamp,
                     open, high, low, close, volume,
@@ -216,7 +254,7 @@ class MangoDataStore:
             # Check for duplicate signal in the last hour
             one_hour_ago = (datetime.utcnow() - timedelta(hours=1)).isoformat()
             
-            existing = conn.execute("""
+            cursor = self._execute_query(conn, """
                 SELECT id FROM signals
                 WHERE asset_name = ?
                 AND signal_type = ?
@@ -226,7 +264,8 @@ class MangoDataStore:
                 signal_data['asset_name'],
                 signal_data['signal_type'],
                 one_hour_ago
-            )).fetchone()
+            ))
+            existing = cursor.fetchone()
             
             if existing:
                 # Signal already exists, return existing ID
@@ -235,7 +274,7 @@ class MangoDataStore:
             # No duplicate found, insert new signal
             now = datetime.utcnow().isoformat()
             
-            conn.execute("""
+            self._execute_query(conn, """
                 INSERT INTO signals (
                     asset_name, asset_type, signal_type, confidence,
                     entry_price, take_profit, stop_loss, rr_ratio,
@@ -263,19 +302,17 @@ class MangoDataStore:
                 signal_data.get('alerted_discord', False)
             ))
             
-            return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            cursor = self._execute_query(conn, "SELECT last_insert_rowid()")
+            return cursor.fetchone()[0]
     
     def get_active_signals(self):
         """Get all active signals"""
         with self.get_connection() as conn:
-            cursor = conn.execute("""
+            return self._fetch_query(conn, """
                 SELECT * FROM signals
                 WHERE status = 'ACTIVE'
                 ORDER BY entry_time DESC
             """)
-            
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
     
     def get_signal_history(self, hours=24):
         """Get signal history for the last N hours"""
@@ -284,21 +321,18 @@ class MangoDataStore:
         cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
         
         with self.get_connection() as conn:
-            cursor = conn.execute("""
+            return self._fetch_query(conn, """
                 SELECT * FROM signals
                 WHERE entry_time >= ?
                 ORDER BY entry_time DESC
             """, (cutoff,))
-            
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
     
     def mark_signal_alerted(self, signal_id):
         """Mark a signal as alerted to Discord"""
         from datetime import datetime
         
         with self.get_connection() as conn:
-            conn.execute("""
+            self._execute_query(conn, """
                 UPDATE signals
                 SET alerted_discord = 1, updated_at = ?
                 WHERE id = ?
@@ -309,7 +343,7 @@ class MangoDataStore:
         from datetime import datetime
         
         with self.get_connection() as conn:
-            conn.execute("""
+            self._execute_query(conn, """
                 UPDATE signals
                 SET status = 'CLOSED', updated_at = ?
                 WHERE id = ?
@@ -317,55 +351,62 @@ class MangoDataStore:
     
     def update_signal_statuses(self):
         """Update all active signals based on current prices"""
+        from datetime import datetime
+        
         with self.get_connection() as conn:
             # Get all active signals
-            active_signals = conn.execute("""
+            active_signals = self._fetch_query(conn, """
                 SELECT id, asset_name, signal_type, entry_price, take_profit, stop_loss
                 FROM signals
                 WHERE status = 'ACTIVE'
-            """).fetchall()
+            """)
             
             for signal in active_signals:
-                signal_id, asset_name, signal_type, entry_price, take_profit, stop_loss = signal
+                signal_id = signal['id']
+                asset_name = signal['asset_name']
+                signal_type = signal['signal_type']
+                entry_price = signal['entry_price']
+                take_profit = signal['take_profit']
+                stop_loss = signal['stop_loss']
                 
                 # Get latest price for this asset
-                latest_price = conn.execute("""
+                latest_prices = self._fetch_query(conn, """
                     SELECT close FROM scrapes
                     WHERE name = ?
                     ORDER BY timestamp DESC
                     LIMIT 1
-                """, (asset_name,)).fetchone()
+                """, (asset_name,))
                 
-                if not latest_price:
+                if not latest_prices:
                     continue
                 
-                current_price = latest_price[0]
+                current_price = latest_prices[0]['close']
                 
                 # Check if TP or SL was hit
                 is_long = 'LONG' in signal_type
                 
                 if is_long:
                     if current_price >= take_profit:
-                        conn.execute("""
+                        self._execute_query(conn, """
                             UPDATE signals
                             SET status = 'TP_HIT', updated_at = ?
                             WHERE id = ?
                         """, (datetime.utcnow().isoformat(), signal_id))
                     elif current_price <= stop_loss:
-                        conn.execute("""
+                        self._execute_query(conn, """
                             UPDATE signals
                             SET status = 'SL_HIT', updated_at = ?
                             WHERE id = ?
                         """, (datetime.utcnow().isoformat(), signal_id))
                 else:  # SHORT
                     if current_price <= take_profit:
-                        conn.execute("""
+                        self._execute_query(conn, """
                             UPDATE signals
                             SET status = 'TP_HIT', updated_at = ?
                             WHERE id = ?
                         """, (datetime.utcnow().isoformat(), signal_id))
                     elif current_price >= stop_loss:
-                        conn.execute("""
+                        self._execute_query(conn, """
                             UPDATE signals
                             SET status = 'SL_HIT', updated_at = ?
                             WHERE id = ?
@@ -374,20 +415,17 @@ class MangoDataStore:
     def get_history(self, name, timeframe, limit=10):
         """Get historical data for an asset/timeframe"""
         with self.get_connection() as conn:
-            cursor = conn.execute("""
+            return self._fetch_query(conn, """
                 SELECT * FROM scrapes
                 WHERE name = ? AND timeframe = ?
                 ORDER BY candle_time DESC
                 LIMIT ?
             """, (name, timeframe, limit))
-            
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
     
     def get_latest_for_all_assets(self):
         """Get latest scrape for each asset/timeframe combo"""
         with self.get_connection() as conn:
-            cursor = conn.execute("""
+            return self._fetch_query(conn, """
                 SELECT * FROM scrapes s1
                 WHERE timestamp = (
                     SELECT MAX(timestamp)
@@ -396,9 +434,6 @@ class MangoDataStore:
                 )
                 ORDER BY name, timeframe
             """)
-            
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
     
     def _get_candle_time(self, timestamp_str, timeframe):
         """Align timestamp to candle start"""
