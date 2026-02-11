@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local files
+.env
+.env.local
+*.local
+
+# Logs
+*.log
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Documentation (except essential)
+*.md
+!README.md
+
+# Git
+.git/
+.gitignore
+
+# Railway
+.railway/
