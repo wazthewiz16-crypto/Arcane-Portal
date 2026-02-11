@@ -42,8 +42,14 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers (just chromium, deps already installed above)
+# Set Playwright browser path BEFORE installing
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# Install Playwright browsers to the specified path
 RUN playwright install chromium
+
+# Verify the browser was installed
+RUN ls -la /ms-playwright/chromium-*/chrome-linux/chrome || echo "Browser not found at expected location"
 
 # Copy application code
 COPY . .
@@ -51,7 +57,6 @@ COPY . .
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV HEADLESS_BROWSER=true
-ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 # Run the application
 CMD ["python", "run_signals.py"]
