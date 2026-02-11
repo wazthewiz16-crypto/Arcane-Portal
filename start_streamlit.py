@@ -4,8 +4,15 @@ import os
 import subprocess
 import sys
 
-# Get port from environment or use default
-port = os.environ.get('PORT', '8501')
+# Get port from environment, handle empty/None values
+port = os.environ.get('PORT', '').strip()
+
+# If PORT is empty, None, or invalid, use default
+if not port or not port.isdigit():
+    port = '8501'
+    print(f"PORT not set or invalid, using default: {port}")
+else:
+    print(f"Using PORT from environment: {port}")
 
 # Build streamlit command
 cmd = [
