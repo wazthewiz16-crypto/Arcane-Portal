@@ -42,8 +42,10 @@ class TimeframeScheduler:
         # 4h: Scrape every time (Live updates)
         timeframes_to_scrape.append('4h')
 
-        # 1d: Scrape every time (Live updates)
-        timeframes_to_scrape.append('1d')
+        # 1d: Twice daily at 00:00 UTC and 12:00 UTC (with 35m window)
+        # Covers daily close (00:00) and mid-day check (12:00)
+        if now.hour % 12 == 0 and now.minute < 35:
+            timeframes_to_scrape.append('1d')
         
         # 12h: Run during first 20 mins of 12-hour intervals (keep efficient)
         if now.minute < 20 and now.hour % 12 == 0:
