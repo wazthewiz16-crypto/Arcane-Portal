@@ -69,6 +69,10 @@ class TradingViewScraper:
             await page.keyboard.type(tv_timeframe)
             await page.keyboard.press("Enter")
             
+            # Reset chart view to latest candle
+            await asyncio.sleep(1)
+            await page.keyboard.press("Alt+R")
+            
             # Wait for timeframe to load
             if timeframe in ['1d', '4d']:
                 await asyncio.sleep(5)
