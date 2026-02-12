@@ -102,6 +102,9 @@ class MangoSignalDetector:
                 timeframe=htf_data['timeframe']
             )
             
+            if not tp_sl:
+                continue
+            
             return {
                 'asset_name': name,
                 'asset_type': self._get_asset_type(name),
@@ -167,6 +170,9 @@ class MangoSignalDetector:
                 timeframe=ltf_data['timeframe'],
                 is_scalp=True
             )
+            
+            if not tp_sl:
+                continue
             
             return {
                 'asset_name': name,
@@ -304,42 +310,44 @@ class MangoSignalDetector:
         entry_zone_high: float,
         timeframe: str,
         is_scalp: bool = False
-    ) -> Dict:
+    ) -> Optional[Dict]:
         """
         Calculate Take Profit and Stop Loss levels
-        
-        Logic:
-        - Stop Loss: Entry zone boundary (opposite side)
-        - Take Profit: Risk-reward based (2.5:1 for swings, 2:1 for scalps)
+        Returns None if trade is invalid (e.g. Price violates SL logic)
         """
         if direction == 'LONG':
-            # Long trade
-            stop_loss = entry_zone_low  # Bottom of entry zone
+            # Long trade: SL is bottom of zone
+            stop_loss = entry_zone_low
             risk = entry_price - stop_loss
+            
+            # Invalid if Price <= SL (already stopped out)
+            if risk <= 0:
+                return None
             
             # TP based on RR ratio
             rr_ratio = 2.0 if is_scalp else 2.5
             take_profit = entry_price + (risk * rr_ratio)
             
         else:
-            # Short trade
-            stop_loss = entry_zone_high  # Top of entry zone
+            # Short trade: SL is top of zone
+            stop_loss = entry_zone_high
             risk = stop_loss - entry_price
+            
+            # Invalid if Price >= SL (already stopped out)
+            if risk <= 0:
+                return None
             
             # TP based on RR ratio
             rr_ratio = 2.0 if is_scalp else 2.5
             take_profit = entry_price - (risk * rr_ratio)
         
         # Calculate actual RR ratio
-        if risk > 0:
-            actual_rr = abs(take_profit - entry_price) / risk
-        else:
-            actual_rr = 0
+        actual_rr = abs(take_profit - entry_price) / risk
         
         return {
             'take_profit': round(take_profit, 2),
             'stop_loss': round(stop_loss, 2),
-            'rr_ratio': round(actual_rr, 2)
+            'rr_ratio': round(actual_rr, 1)
         }
     
     def _get_asset_type(self, asset_name: str) -> str:

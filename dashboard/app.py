@@ -72,19 +72,31 @@ if 'auto_refresh' not in st.session_state:
 
 def render_header():
     """Render dashboard header"""
+    import pytz
+    
     st.markdown('<h1 class="main-header">🔮 Arcane Portal V2</h1>', unsafe_allow_html=True)
     st.markdown("**Mango Dynamic Trading Signals** • Real-time signal detection and analysis")
     
-    # Last update time
+    # Last update time (Convert to EST)
+    est = pytz.timezone('America/New_York')
+    utc = pytz.utc
+    
+    last_refresh = st.session_state.last_refresh
+    # Handle naive datetime (assume UTC if server time)
+    if last_refresh.tzinfo is None:
+        last_refresh = utc.localize(last_refresh)
+    
+    est_time = last_refresh.astimezone(est)
+    
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        st.caption(f"Last updated: {st.session_state.last_refresh.strftime('%Y-%m-%d %H:%M:%S')}")
+        st.caption(f"Last updated: {est_time.strftime('%Y-%m-%d %I:%M:%S %p')} EST")
     with col2:
         if st.button("🔄 Refresh Now"):
             st.session_state.last_refresh = datetime.now()
             st.rerun()
     with col3:
-        st.session_state.auto_refresh = st.checkbox("Auto-refresh (60s)", value=st.session_state.auto_refresh)
+        st.session_state.auto_refresh = st.checkbox("Auto-refresh (60s)", value=st.session_state.auto_refresh, key="auto_refresh_cb")
 
 def render_active_signals():
     """Render active trading signals"""
