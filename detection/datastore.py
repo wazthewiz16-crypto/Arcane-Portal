@@ -247,23 +247,19 @@ class MangoDataStore:
             self.save_scrape(scrape)
     
     def save_signal(self, signal_data):
-        """Save a trading signal (prevents duplicates within 1 hour)"""
-        from datetime import datetime, timedelta
+        """Save a trading signal (prevents duplicates of ACTIVE signals)"""
+        from datetime import datetime
         
         with self.get_connection() as conn:
-            # Check for duplicate signal in the last hour
-            one_hour_ago = (datetime.utcnow() - timedelta(hours=1)).isoformat()
-            
+            # Check for ANY duplicate active signal
             cursor = self._execute_query(conn, """
                 SELECT id FROM signals
                 WHERE asset_name = ?
                 AND signal_type = ?
                 AND status = 'ACTIVE'
-                AND entry_time > ?
             """, (
                 signal_data['asset_name'],
-                signal_data['signal_type'],
-                one_hour_ago
+                signal_data['signal_type']
             ))
             existing = cursor.fetchone()
             

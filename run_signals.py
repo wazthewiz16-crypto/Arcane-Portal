@@ -104,10 +104,19 @@ async def run_scraper_and_detect():
     print("\n[STEP 4] Saving signals and sending Discord alerts...")
     
     try:
+        # Get active signals to prevent duplicates
+        active_signals = datastore.get_active_signals()
+        active_map = {(s['asset_name'], s['signal_type']) for s in active_signals}
+        
         for signal in signals:
-            # Save to database
+            # Check if signal is already active
+            if (signal['asset_name'], signal['signal_type']) in active_map:
+                print(f"  ℹ️  Signal already ACTIVE: {signal['asset_name']} {signal['signal_type']} - Skipping alert")
+                continue
+            
+            # Save to database (will be new since we checked active_map)
             signal_id = datastore.save_signal(signal)
-            print(f"  ✅ Saved signal {signal_id}: {signal['asset_name']} {signal['signal_type']}")
+            print(f"  ✅ Saved NEW signal {signal_id}: {signal['asset_name']} {signal['signal_type']}")
             
             # Send Discord alert
             if notifier.send_signal_alert(signal):
