@@ -36,21 +36,18 @@ class TimeframeScheduler:
         # 15m: Scrape every time the worker runs
         timeframes_to_scrape.append('15m')
         
-        # 1h: Run during first 20 mins of the hour (covers 00 and 15 cron runs)
-        if now.minute < 20:
-            timeframes_to_scrape.append('1h')
+        # 1h: Scrape every time (Live updates)
+        timeframes_to_scrape.append('1h')
         
-        # 4h: Run during first 20 mins of 4-hour intervals
-        if now.minute < 20 and now.hour % 4 == 0:
-            timeframes_to_scrape.append('4h')
+        # 4h: Scrape every time (Live updates)
+        timeframes_to_scrape.append('4h')
+
+        # 1d: Scrape every time (Live updates)
+        timeframes_to_scrape.append('1d')
         
-        # 12h: Run during first 20 mins of 12-hour intervals
+        # 12h: Run during first 20 mins of 12-hour intervals (keep efficient)
         if now.minute < 20 and now.hour % 12 == 0:
             timeframes_to_scrape.append('12h')
-        
-        # 1d: Run between 00:05 and 00:35 UTC (Ensure >5 mins after close)
-        if 5 <= now.minute < 35 and now.hour == 0:
-            timeframes_to_scrape.append('1d')
         
         # 4d: Every 4 days at 00 UTC (>5 mins after close)
         days_since_epoch = (now - datetime(2024, 1, 1, tzinfo=self.utc)).days
