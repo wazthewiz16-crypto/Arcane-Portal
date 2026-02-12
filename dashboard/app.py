@@ -304,17 +304,26 @@ def render_asset_monitor():
     try:
         latest_data = datastore.get_latest_for_all_assets()
         
-        # Group by asset
+        # Group by asset with smart timeframe selection
         asset_data = {}
         for row in latest_data:
             name = row['name']
             if name not in asset_data:
                 asset_data[name] = {'htf': None, 'ltf': None}
             
-            if row['tf_type'] == 'htf':
-                asset_data[name]['htf'] = row
+            tf = row['timeframe']
+            
+            # Smart categorization
+            if tf in ['4d', '1d', '12h', '4h']:
+                # Prioritize 4H for HTF view, otherwise take what's available
+                current = asset_data[name]['htf']
+                if not current or tf == '4h' or (tf == '1d' and current['timeframe'] != '4h'):
+                    asset_data[name]['htf'] = row
             else:
-                asset_data[name]['ltf'] = row
+                # Prioritize 15m for LTF view
+                current = asset_data[name]['ltf']
+                if not current or tf == '15m' or (tf == '1h' and current['timeframe'] != '15m'):
+                    asset_data[name]['ltf'] = row
         
         # Display in grid
         cols = st.columns(3)
@@ -325,25 +334,31 @@ def render_asset_monitor():
             with cols[idx % 3]:
                 with st.container():
                     st.subheader(f"{name}")
-                    htf_tf = data.get('htf', {}).get('timeframe', 'HTF') if data.get('htf') else 'HTF'
-                    ltf_tf = data.get('ltf', {}).get('timeframe', 'LTF') if data.get('ltf') else 'LTF'
+                    htf_row = data.get('htf')
+                    ltf_row = data.get('ltf')
+                    
+                    htf_tf = htf_row.get('timeframe', 'HTF') if htf_row else 'HTF'
+                    ltf_tf = ltf_row.get('timeframe', 'LTF') if ltf_row else 'LTF'
                     st.caption(f"{asset['type'].upper()} • {htf_tf}/{ltf_tf}")
                     
-                    if data.get('ltf'):
-                        ltf = data['ltf']
+                    if ltf_row:
                         precision = asset.get('precision', 2)
-                        st.metric("Price", f"${ltf.get('close', 0):,.{precision}f}")
+                        price = ltf_row.get('close')
                         
-                        # Show if in entry zone
-                        if ltf.get('entry_up') and ltf.get('entry_down'):
-                            price = ltf.get('close', 0)
-                            in_zone = ltf['entry_down'] <= price <= ltf['entry_up']
-                            if in_zone:
-                                st.success("✅ In Entry Zone")
-                            else:
-                                st.caption("Waiting for pullback")
+                        if price is not None:
+                            st.metric("Price", f"${price:,.{precision}f}")
+                            
+                            # Show if in entry zone
+                            if ltf_row.get('entry_up') and ltf_row.get('entry_down'):
+                                in_zone = ltf_row['entry_down'] <= price <= ltf_row['entry_up']
+                                if in_zone:
+                                    st.success("✅ In Entry Zone")
+                                else:
+                                    st.caption("Waiting for pullback")
+                        else:
+                            st.warning("Price data unavailable")
                     else:
-                        st.caption("No data available")
+                        st.caption("No recent data")
                     
                     st.divider()
                     
