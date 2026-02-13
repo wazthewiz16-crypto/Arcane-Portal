@@ -330,7 +330,7 @@ class MangoDataStore:
         with self.get_connection() as conn:
             self._execute_query(conn, """
                 UPDATE signals
-                SET alerted_discord = 1, updated_at = ?
+                SET alerted_discord = TRUE, updated_at = ?
                 WHERE id = ?
             """, (datetime.utcnow().isoformat(), signal_id))
     
