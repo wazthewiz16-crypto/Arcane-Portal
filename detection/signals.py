@@ -65,9 +65,9 @@ class MangoSignalDetector:
         - Uses 4h → 1h or 1d → 4h combinations
         """
         # Try different HTF/LTF combinations for swing trading
+        # Try different HTF/LTF combinations for swing trading
         combinations = [
-            ('4h', '1h'),   # Primary swing combination
-            ('1d', '4h'),   # Alternative swing combination
+            ('1d', '4h'),   # Daily/4H is the primary swing combination
         ]
         
         for htf_tf, ltf_tf in combinations:
