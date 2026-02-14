@@ -82,6 +82,21 @@ class TradingViewScraper:
             wait_time = 5 if timeframe in ['1d', '4d'] else 3
             await asyncio.sleep(wait_time)
             
+            # Hide floating toolbars and favorites bar (user request)
+            try:
+                await page.add_style_tag(content="""
+                    .tv-floating-toolbar, 
+                    .drawing-toolbar, 
+                    .tv-favorited-drawings-toolbar,
+                    [class*="floating-toolbar"],
+                    [class*="floatingToolbar"],
+                    [data-name="drawing-toolbar"] {
+                        display: none !important;
+                    }
+                """)
+            except Exception:
+                pass
+
             # Take screenshot (after wait, before scraping values)
             # Filename: BTC_4h.png
             screenshot_path = os.path.join(screenshots_dir, f"{name}_{timeframe}.png")
