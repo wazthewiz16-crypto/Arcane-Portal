@@ -39,6 +39,20 @@ SCRAPE_INTERVALS = {
     "4d": 1440
 }
 
+# TradingView Layouts (Per-Timeframe Settings Support)
+# Allows using different saved layouts (with different indicator settings) per timeframe
+LAYOUTS = {
+    "default": os.getenv("TRADINGVIEW_LAYOUT_ID", ""),
+    "4d": os.getenv("TRADINGVIEW_LAYOUT_4D", ""),
+    "1d": os.getenv("TRADINGVIEW_LAYOUT_1D", ""),
+    "12h": os.getenv("TRADINGVIEW_LAYOUT_12H", ""),
+    "4h": os.getenv("TRADINGVIEW_LAYOUT_4H", ""),
+    "1h": os.getenv("TRADINGVIEW_LAYOUT_1H", ""),
+    "15m": os.getenv("TRADINGVIEW_LAYOUT_15M", ""),
+    "5m": os.getenv("TRADINGVIEW_LAYOUT_5M", ""),
+    "3m": os.getenv("TRADINGVIEW_LAYOUT_3M", "")
+}
+
 def validate_config():
     """Validate required configuration"""
     errors = []

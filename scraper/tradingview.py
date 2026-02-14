@@ -21,14 +21,19 @@ class TradingViewScraper:
         name = asset['name']
         
         import os
+        from config import settings
         page = await context.new_page()
         
         try:
-            # allow user to specify layout ID from env, or default to last used (no ID)
-            layout_id = os.getenv('TRADINGVIEW_LAYOUT_ID', '')
+            # Determine Layout ID (Timeframe specific > Default > None)
+            layout_id = settings.LAYOUTS.get(timeframe.lower())
+            if not layout_id:
+                layout_id = settings.LAYOUTS.get('default')
+                
             if layout_id:
                 url = f"https://www.tradingview.com/chart/{layout_id}/?symbol={symbol}"
             else:
+                # Default generic URL
                 url = f"https://www.tradingview.com/chart/?symbol={symbol}"
 
             logger.info(f"Scraping {name} [{timeframe}] - URL: {url}")
