@@ -469,8 +469,22 @@ class MangoDataStore:
                     FROM scrapes s2
                     WHERE s1.name = s2.name AND s1.timeframe = s2.timeframe
                 )
+
                 ORDER BY name, timeframe
             """)
+
+    def get_latest_for_asset(self, asset_name):
+        """Get latest scrape for a single asset (all timeframes)"""
+        with self.get_connection() as conn:
+            rows = self._fetch_query(conn, """
+                SELECT * FROM scrapes s1
+                WHERE name = ? AND timestamp = (
+                    SELECT MAX(timestamp)
+                    FROM scrapes s2
+                    WHERE s1.name = s2.name AND s1.timeframe = s2.timeframe
+                )
+            """, (asset_name,))
+            return rows
     
     def _get_candle_time(self, timestamp_str, timeframe):
         """Align timestamp to candle start"""

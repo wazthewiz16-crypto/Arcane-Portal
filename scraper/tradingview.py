@@ -285,3 +285,63 @@ class TradingViewScraper:
             print(f"         Mango: D1=${mango_d1:,.{precision}f} | D2=${mango_d2:,.{precision}f}")
         else:
             print(f"    ✗ {timeframe} failed (no data)")
+
+    async def stream_assets(self, assets, use_smart_scheduling=True):
+        """Yield results per asset immediately for streaming processing"""
+        from playwright.async_api import async_playwright
+        from scraper.scheduler import TimeframeScheduler
+        
+        # Scheduler logic
+        scheduler = TimeframeScheduler() if use_smart_scheduling else None
+        timeframes_to_scrape = []
+        if use_smart_scheduling:
+            timeframes_to_scrape = scheduler.get_timeframes_to_scrape()
+            if not timeframes_to_scrape:
+                logger.info("No timeframes to scrape.")
+                return
+
+        # Launch browser once
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
+            )
+            
+            if not self.state_file.exists():
+                logger.error("tv_state.json not found!")
+                return 
+
+            context = await browser.new_context(
+                storage_state=str(self.state_file),
+                viewport={'width': 1920, 'height': 1080}
+            )
+
+            total = len(assets)
+            for idx, asset in enumerate(assets, 1):
+                asset_results = []
+                
+                # Filter timeframes (if smart scheduling)
+                tfs = asset['timeframes']
+                if use_smart_scheduling:
+                    tfs = [tf for tf in tfs if tf in timeframes_to_scrape]
+                
+                if not tfs:
+                    continue
+
+                print(f"\nProcessing {idx}/{total}: {asset['name']} ({len(tfs)} TFs)...")
+
+                for timeframe in tfs:
+                    # Use existing scrape_asset method
+                    try:
+                        data = await self.scrape_asset(context, asset, timeframe)
+                        if data:
+                            asset_results.append(data)
+                            self._print_timeframe_data(timeframe, data, asset)
+                    except Exception as e:
+                        logger.error(f"Error streaming asset {asset['name']}: {e}")
+                
+                if asset_results:
+                    yield asset_results
+            
+            await context.close()
+            await browser.close()

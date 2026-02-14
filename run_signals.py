@@ -29,145 +29,114 @@ async def run_scraper_and_detect():
     notifier = DiscordNotifier()
     
     # Step 1: Run scraper
-    print("\n[STEP 1] Running TradingView scraper...")
-    print("This will take a few minutes to scrape all assets and timeframes...")
+    # Step 1: Initialize
+    # Update existing statuses first (with whatever data we have)
+    print("\n[STEP 1] Updating existing signal statuses...")
+    try:
+        datastore.update_signal_statuses()
+        print("✅ Signal statuses monitored")
+    except Exception as e:
+        print(f"⚠️  Error updating statuses: {e}")
+
+    # Step 2: Run Scraper & Detect in Stream
+    print("\n[STEP 2] Running TradingView scraper (Streaming Mode)...")
+    print("Processing assets one by one for faster alerts...")
     
     scraper = TradingViewScraper()
     assets = get_active_assets()
     
-    # Smart scheduling (can be disabled via environment variable)
     use_smart_scheduling = os.getenv('USE_SMART_SCHEDULING', 'true').lower() == 'true'
     
+    total_scraped = 0
+    total_signals = 0
+    
     try:
-        results = await scraper.scrape_all_assets(assets, use_smart_scheduling=use_smart_scheduling)
-        
-        if results:
-            print(f"✅ Scraped {len(results)} data points")
+        async for asset_scrapes in scraper.stream_assets(assets, use_smart_scheduling=use_smart_scheduling):
+            if not asset_scrapes: continue
             
-            # Save to database
-            datastore.save_scrapes(results)
-            print(f"✅ Saved to database")
+            asset_name = asset_scrapes[0]['name']
+            count = len(asset_scrapes)
+            total_scraped += count
+            print(f"  📝 Saving {count} scrapes for {asset_name}...")
             
-            # Save screenshots to DB for cross-process access
-            count = 0
-            for r in results:
+            # 1. Save to DB
+            datastore.save_scrapes(asset_scrapes)
+            
+            # 2. Save Screenshots
+            for r in asset_scrapes:
                 if 'screenshot_bytes' in r:
                     datastore.save_screenshot(r['name'], r['timeframe'], r['screenshot_bytes'])
-                    count += 1
-            if count > 0:
-                print(f"📸 Saved {count} screenshots to DB")
-        else:
-            if use_smart_scheduling:
-                print("⏭️  No timeframes needed scraping at this time")
-            else:
-                print("❌ No data scraped. Check your tv_state.json file.")
-            return
             
-    except Exception as e:
-        print(f"❌ Scraper error: {e}")
-        import traceback
-        traceback.print_exc()
-        return
-    
-    # Step 2: Update existing signal statuses
-    print("\n[STEP 2] Updating existing signal statuses...")
-    
-    try:
-        datastore.update_signal_statuses()
-        print("✅ Signal statuses updated")
-    except Exception as e:
-        print(f"⚠️  Error updating statuses: {e}")
-    
-    # Step 3: Detect new signals
-    print("\n[STEP 3] Detecting trading signals...")
-    
-    try:
-        signals = detector.get_all_signals()
-        
-        if signals:
-            print(f"✅ Found {len(signals)} signals!")
+            # 3. Update Status (Check TP/SL for this asset immediately)
+            # We run global update but only this asset has new prices
+            datastore.update_signal_statuses()
             
-            # Display signals
-            for i, signal in enumerate(signals, 1):
-                print(f"\n  Signal {i}:")
-                print(f"    Asset: {signal['asset_name']}")
-                print(f"    Type: {signal['signal_type']}")
-                print(f"    Confidence: {signal['confidence']:.0f}%")
-                print(f"    Entry: ${signal['entry_price']:,.2f}")
-                print(f"    TP: ${signal['take_profit']:,.2f}")
-                print(f"    SL: ${signal['stop_loss']:,.2f}")
-                print(f"    RR: {signal['rr_ratio']:.1f}:1")
-        else:
-            print("ℹ️  No signals detected (no setups meet confidence thresholds)")
-            print("   - Swing signals need 60%+ confidence")
-            print("   - Scalp signals need 75%+ confidence")
-            return
+            # 4. Detect New Signals for THIS asset
+            signals = detector.detect_signals_for_asset(asset_name)
             
-    except Exception as e:
-        print(f"❌ Signal detection error: {e}")
-        import traceback
-        traceback.print_exc()
-        return
-    
-    # Step 4: Save signals and send Discord alerts
-    print("\n[STEP 4] Saving signals and sending Discord alerts...")
-    
-    try:
-        # Get active signals to prevent duplicates
-        active_signals = datastore.get_active_signals()
-        active_map = {(s['asset_name'], s['signal_type']) for s in active_signals}
-        
-        for signal in signals:
-            # Check if signal is already active
-            if (signal['asset_name'], signal['signal_type']) in active_map:
-                print(f"  ℹ️  Signal already ACTIVE: {signal['asset_name']} {signal['signal_type']} - Skipping alert")
-                continue
-            
-            # Save to database (will be new since we checked active_map)
-            signal_id = datastore.save_signal(signal)
-            print(f"  ✅ Saved NEW signal {signal_id}: {signal['asset_name']} {signal['signal_type']}")
-            
-            # Helper to copy screenshot
-            import shutil
-            ltf = signal['ltf']
-            name = signal['asset_name']
-            # Source: data/screenshots/BTC_1h.png
-            src_path = os.path.join("data", "screenshots", f"{name}_{ltf}.png")
-            # Dest: data/screenshots/signals/123.png
-            dest_dir = os.path.join("data", "screenshots", "signals")
-            os.makedirs(dest_dir, exist_ok=True)
-            
-            if os.path.exists(src_path):
-                dest_path = os.path.join(dest_dir, f"{signal_id}.png")
-                try:
-                    shutil.copy2(src_path, dest_path)
-                    signal['image_path'] = dest_path # Pass to notifier
-                    print(f"  📸 Attached screenshot for signal {signal_id}")
-                    
-                    # Save to DB for cross-process access (Dashboard)
-                    try:
-                        with open(dest_path, "rb") as f:
-                             datastore.save_signal_image(signal_id, f.read())
-                    except Exception as e:
-                        print(f"  ⚠️  Failed to save signal image to DB: {e}")
+            if signals:
+                print(f"  🚨 Found {len(signals)} NEW signals for {asset_name}!")
+                total_signals += len(signals)
+                
+                # Check active & Alert
+                active_signals = datastore.get_active_signals()
+                active_map = {(s['asset_name'], s['signal_type']) for s in active_signals}
+                
+                for signal in signals:
+                    if (signal['asset_name'], signal['signal_type']) in active_map:
+                        print(f"    ℹ️  Already Active: {signal['signal_type']}")
+                        continue
                         
-                except Exception as e:
-                    print(f"  ⚠️  Failed to copy screenshot: {e}")
-            
-            # Send Discord alert
-            if notifier.send_signal_alert(signal):
-                datastore.mark_signal_alerted(signal_id)
-                print(f"  ✅ Discord alert sent for {signal['asset_name']}")
+                    # Save Signal
+                    signal_id = datastore.save_signal(signal)
+                    print(f"    ✅ Saved signal {signal_id}")
+                    
+                    # Handle Screenshot (Copy from Scraper storage to Signal storage)
+                    # Scraper saved to DB. Signal needs separate copy?
+                    # Signal Card uses `get_signal_image(signal_id)`.
+                    # Scraper stored in `screenshots` table (latest).
+                    # We should COPY bytes from current scrape -> signal_images table.
+                    
+                    # Find matching scrape result for LTF
+                    ltf = signal['ltf']
+                    scrape_match = next((r for r in asset_scrapes if r['timeframe'] == ltf), None)
+                    if scrape_match and 'screenshot_bytes' in scrape_match:
+                         # Save to Signal Images
+                         datastore.save_signal_image(signal_id, scrape_match['screenshot_bytes'])
+                         # Also set path for Discord (Needs local file?)
+                         # DiscordNotifier expects 'image_path'.
+                         # We need to write to temporary file for Discord.
+                         import tempfile
+                         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                             tmp.write(scrape_match['screenshot_bytes'])
+                             signal['image_path'] = tmp.name
+                         print(f"    📸 Attached screenshot")
+
+                    # Alert
+                    if notifier.send_signal_alert(signal):
+                        datastore.mark_signal_alerted(signal_id)
+                        print(f"    🚀 Sent Discord Alert")
+                        
+                        # Cleanup temp file
+                        if signal.get('image_path') and os.path.exists(signal['image_path']):
+                            try: os.remove(signal['image_path'])
+                            except: pass
             else:
-                print(f"  ⚠️  Discord alert failed for {signal['asset_name']}")
-        
-        print(f"\n✅ All done! {len(signals)} signals saved and alerted")
-        
+                # print(f"  ✓ No new signals for {asset_name}")
+                pass
+                
+        if total_scraped == 0:
+            if use_smart_scheduling:
+                 print("⏭️  No timeframes needed scraping.")
+            else:
+                 print("❌ No data scraped.")
+
     except Exception as e:
-        print(f"❌ Error saving/alerting: {e}")
+        print(f"❌ Stream error: {e}")
         import traceback
         traceback.print_exc()
-        return
+
+    print(f"\n✅ Streaming Complete! {total_signals} new signals generated.")
     
     print("\n" + "=" * 60)
     print("COMPLETE! Check your dashboard and Discord for signals")

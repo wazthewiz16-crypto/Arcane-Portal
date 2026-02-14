@@ -54,6 +54,29 @@ class MangoSignalDetector:
         signals.sort(key=lambda x: x['confidence'], reverse=True)
         return signals
     
+    def detect_signals_for_asset(self, asset_name: str) -> List[Dict]:
+        """Analyze a single asset and return signals above confidence threshold"""
+        signals = []
+        # Get latest data for this asset specifically
+        latest_data = self.datastore.get_latest_for_asset(asset_name)
+        
+        # Group by timeframe
+        timeframes = {}
+        for row in latest_data:
+            timeframes[row['timeframe']] = row
+        
+        # Analyze - Swing signals
+        swing_signal = self._detect_swing_signal(asset_name, timeframes)
+        if swing_signal and swing_signal['confidence'] >= self.min_confidence_swing:
+            signals.append(swing_signal)
+        
+        # Scalp signals
+        scalp_signal = self._detect_scalp_signal(asset_name, timeframes)
+        if scalp_signal and scalp_signal['confidence'] >= self.min_confidence_scalp:
+            signals.append(scalp_signal)
+            
+        return signals
+    
     
     def _detect_swing_signal(self, name: str, timeframes: Dict) -> Optional[Dict]:
         """
