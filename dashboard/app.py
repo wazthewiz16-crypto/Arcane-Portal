@@ -103,11 +103,12 @@ def render_active_signals():
     st.header("🚨 Active Signals")
     
     # Get signals
+    # Get active signals from DB (persistent)
     datastore = MangoDataStore()
-    detector = MangoSignalDetector(datastore)
+    # detector = MangoSignalDetector(datastore) # Not needed for viewing
     
     try:
-        signals = detector.get_all_signals()
+        signals = datastore.get_active_signals()
         
         if not signals:
             st.info("No active signals at the moment. Waiting for setups...")
