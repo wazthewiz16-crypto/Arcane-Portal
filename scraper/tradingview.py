@@ -111,8 +111,9 @@ class TradingViewScraper:
             data = None
             
             for attempt in range(max_retries):
-                # Move mouse to trigger data window update
-                await page.mouse.move(1150, 400)
+                # Move mouse to far right to trigger data window update for LATEST candle
+                # Viewport is 1920 wide. 1150 was fetching historical candles.
+                await page.mouse.move(1800, 500)
                 await asyncio.sleep(1)
                 
                 # Extract data
