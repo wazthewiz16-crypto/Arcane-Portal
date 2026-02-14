@@ -585,12 +585,6 @@ def render_dynamic_levels(datastore):
 
 def main():
     """Main dashboard function"""
-    st.set_page_config(
-        page_title="Arcane Portal V2",
-        page_icon="🔮",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
     
     # Initialize Datastore for Dashboard
     # Using simple connection pooling via new instance
