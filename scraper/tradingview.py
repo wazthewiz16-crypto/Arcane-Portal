@@ -158,11 +158,21 @@ class TradingViewScraper:
                 else:
                     logger.error(f"✗ {name} [{timeframe}]: Failed to get valid price after {max_retries} attempts")
             
+            # Read screenshot bytes
+            screenshot_bytes = None
+            if os.path.exists(screenshot_path):
+                 try:
+                     with open(screenshot_path, 'rb') as f:
+                         screenshot_bytes = f.read()
+                 except Exception:
+                     pass
+
             result = {
                 "symbol": symbol,
                 "name": name,
                 "timeframe": timeframe,
                 "timestamp": datetime.utcnow().isoformat(),
+                "screenshot_bytes": screenshot_bytes,
                 **data
             }
             
