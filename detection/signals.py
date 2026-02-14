@@ -252,34 +252,46 @@ class MangoSignalDetector:
         # Check if price is in entry zone
         in_zone = entry_down <= price <= entry_up
         
-        # Additional check: price should be near the zone boundary appropriate for direction
         near_entry = False
         is_bounce = False
+        valid = False
         
         if direction == 'LONG':
-            # Breakout/Bounce: Price is above Entry Up but close (within 1.5%)
-            near_entry = price > entry_up and (price - entry_up) / entry_up < 0.015
-            
-            # Perfect Bounce Pattern: Low wicked into zone, Close is above/near top
-            # This aligns with "Wait for price to pull back and touch... then break back above"
-            if price > entry_down: # Must be above bottom of support
+            # Check for bounce (Low wicked into zone)
+            # Must be above entry_down to be a valid bounce off support (not below it)
+            if price > entry_down: 
                 low = ltf_data.get('low', price)
-                # Did we touch the zone?
-                touched_zone = low <= entry_up
-                if touched_zone and (in_zone or near_entry):
+                # Touched zone (Low <= Top of zone)
+                if low <= entry_up:
                     is_bounce = True
+            
+            # Valid if IN ZONE
+            if in_zone:
+                valid = True
+                
+            # OR if Bounce + Very close to top (Breakout < 0.3%)
+            # This allows capturing the "Break back above" signal without chasing
+            elif is_bounce and price > entry_up and (price - entry_up) / entry_up < 0.003:
+                near_entry = True
+                valid = True
                     
         else:
             # Short logic
-            near_entry = price < entry_down and (entry_down - price) / entry_down < 0.015
-            
-            if price < entry_up: # Must be below top of resistance
+            # Check for bounce (High wicked into zone)
+            if price < entry_up:
                 high = ltf_data.get('high', price)
-                touched_zone = high >= entry_down
-                if touched_zone and (in_zone or near_entry):
+                # Touched zone (High >= Bottom of zone)
+                if high >= entry_down:
                     is_bounce = True
-        
-        valid = in_zone or near_entry
+            
+            # Valid if IN ZONE
+            if in_zone:
+                valid = True
+                
+            # OR if Bounce + Very close to bottom (Breakout < 0.3%)
+            elif is_bounce and price < entry_down and (entry_down - price) / entry_down < 0.003:
+                near_entry = True
+                valid = True
         
         return {
             'valid': valid,
