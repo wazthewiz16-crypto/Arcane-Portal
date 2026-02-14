@@ -551,12 +551,24 @@ def render_dynamic_levels(datastore):
         with cols[i % 2]:
             st.markdown(f"### {asset['name']}")
             
+            # Fetch indicator data for trends (optimize DB calls)
+            latest = datastore.get_latest_for_asset(asset['name'])
+            scrapes_map = {r['timeframe']: r for r in latest} if latest else {}
+            
             for tf in timeframes:
                 # Fetch screenshot from DB/Local
-                # Ideally check DB for timestamp
                 res = datastore.get_screenshot(asset['name'], tf)
                 
-                label = f"Timeframe: {tf}"
+                # Determine Trend (Bullish/Bearish) based on latest scrape
+                scrape = scrapes_map.get(tf, {})
+                trend_label = ""
+                if scrape.get('close') and scrape.get('mango_d1') and scrape.get('mango_d2'):
+                     p, d1, d2 = scrape['close'], scrape['mango_d1'], scrape['mango_d2']
+                     if p > d2: trend_label = " - 🟢 Bullish"
+                     elif p < d1: trend_label = " - 🔴 Bearish"
+                     else: trend_label = " - ⚪ Neutral"
+
+                label = f"Timeframe: {tf}{trend_label}"
                 updated_at_str = ""
                 
                 if res and isinstance(res, dict) and res.get('updated_at'):
