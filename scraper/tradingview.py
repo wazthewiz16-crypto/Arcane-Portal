@@ -69,15 +69,26 @@ class TradingViewScraper:
             await page.keyboard.type(tv_timeframe)
             await page.keyboard.press("Enter")
             
+            # Join 'data' and 'screenshots' path
+            import os
+            screenshots_dir = os.path.join("data", "screenshots")
+            os.makedirs(screenshots_dir, exist_ok=True)
+            
             # Reset chart view to latest candle
             await asyncio.sleep(1)
             await page.keyboard.press("Alt+R")
             
             # Wait for timeframe to load
-            if timeframe in ['1d', '4d']:
-                await asyncio.sleep(5)
-            else:
-                await asyncio.sleep(3)
+            wait_time = 5 if timeframe in ['1d', '4d'] else 3
+            await asyncio.sleep(wait_time)
+            
+            # Take screenshot (after wait, before scraping values)
+            # Filename: BTC_4h.png
+            screenshot_path = os.path.join(screenshots_dir, f"{name}_{timeframe}.png")
+            try:
+                await page.screenshot(path=screenshot_path)
+            except Exception as e:
+                logger.warning(f"Failed to save screenshot for {name} {timeframe}: {e}")
             
             # Hover current candle with retries
             # Increased retries to 3 for ALL timeframes

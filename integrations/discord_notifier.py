@@ -44,18 +44,41 @@ class DiscordNotifier:
             # Create Discord embed
             embed = self._create_embed(signal, message)
             
-            # Send to Discord
-            payload = {
-                "embeds": [embed]
-            }
+            # Prepare request payload
+            files = {}
+            payload = {"embeds": [embed]}
             
-            response = requests.post(
-                self.webhook_url,
-                json=payload,
-                timeout=10
-            )
+            # Check for screenshot
+            image_path = signal.get('image_path')
+            if image_path:
+                import os
+                if os.path.exists(image_path):
+                    filename = os.path.basename(image_path)
+                    try:
+                        files["file"] = (filename, open(image_path, "rb"))
+                        embed["image"] = {"url": f"attachment://{filename}"}
+                    except Exception as e:
+                        logger.error(f"Failed to attach image: {e}")
+
+            # Send to Discord (using multipart if file exists)
+            import json
+            if files:
+                response = requests.post(
+                    self.webhook_url,
+                    data={"payload_json": json.dumps(payload)},
+                    files=files,
+                    timeout=20 # Increased timeout for image upload
+                )
+                # Close file handle
+                files["file"][1].close()
+            else:
+                response = requests.post(
+                    self.webhook_url,
+                    json=payload,
+                    timeout=10
+                )
             
-            if response.status_code == 204:
+            if response.status_code in [200, 204]:
                 logger.info(f"Discord alert sent: {signal['asset_name']} {signal['signal_type']}")
                 return True
             else:

@@ -210,8 +210,17 @@ def render_signal_card(signal):
             else:
                 conf_color = "🟠"
             
-            st.metric("Confidence", f"{confidence:.0f}%")
+            st.metric("Confidence", f"{confidence:.0f}%", delta=conf_color)
             st.caption(f"RR: {signal['rr_ratio']:.1f}:1")
+        
+        # Display Signal Screenshot if available
+        import os
+        signal_id = signal.get('id')
+        if signal_id:
+            img_path = os.path.join("data", "screenshots", "signals", f"{signal_id}.png")
+            if os.path.exists(img_path):
+                 with st.expander("📸 View Signal Chart"):
+                     st.image(img_path, use_column_width=True, caption=f"Chart at Signal Generation ({signal['entry_time']})")
         
         st.divider()
 
@@ -436,6 +445,24 @@ def render_asset_monitor():
                     else:
                         st.caption("No recent data")
                     
+                    # Chart Screenshots
+                    with st.expander("📸 View Charts"):
+                        import os
+                        # HTF Screenshot
+                        htf_path = os.path.join("data", "screenshots", f"{name}_{htf_tf}.png")
+                        if os.path.exists(htf_path):
+                            st.caption(f"HTF ({htf_tf})")
+                            st.image(htf_path, use_column_width=True)
+                        
+                        # LTF Screenshot
+                        ltf_path = os.path.join("data", "screenshots", f"{name}_{ltf_tf}.png")
+                        if os.path.exists(ltf_path):
+                            st.caption(f"LTF ({ltf_tf})")
+                            st.image(ltf_path, use_column_width=True)
+                        
+                        if not os.path.exists(htf_path) and not os.path.exists(ltf_path):
+                            st.info("No screenshots available yet")
+
                     st.divider()
                     
     except Exception as e:

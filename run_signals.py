@@ -118,6 +118,25 @@ async def run_scraper_and_detect():
             signal_id = datastore.save_signal(signal)
             print(f"  ✅ Saved NEW signal {signal_id}: {signal['asset_name']} {signal['signal_type']}")
             
+            # Helper to copy screenshot
+            import shutil
+            ltf = signal['ltf']
+            name = signal['asset_name']
+            # Source: data/screenshots/BTC_1h.png
+            src_path = os.path.join("data", "screenshots", f"{name}_{ltf}.png")
+            # Dest: data/screenshots/signals/123.png
+            dest_dir = os.path.join("data", "screenshots", "signals")
+            os.makedirs(dest_dir, exist_ok=True)
+            
+            if os.path.exists(src_path):
+                dest_path = os.path.join(dest_dir, f"{signal_id}.png")
+                try:
+                    shutil.copy2(src_path, dest_path)
+                    signal['image_path'] = dest_path # Pass to notifier
+                    print(f"  📸 Attached screenshot for signal {signal_id}")
+                except Exception as e:
+                    print(f"  ⚠️  Failed to copy screenshot: {e}")
+            
             # Send Discord alert
             if notifier.send_signal_alert(signal):
                 datastore.mark_signal_alerted(signal_id)
