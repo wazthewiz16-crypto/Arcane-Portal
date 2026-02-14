@@ -99,6 +99,8 @@ class MangoSignalDetector:
                 direction=htf_direction,
                 entry_zone_low=ltf_data['entry_down'],
                 entry_zone_high=ltf_data['entry_up'],
+                candle_low=ltf_data['low'],
+                candle_high=ltf_data['high'],
                 timeframe=htf_data['timeframe']
             )
             
@@ -167,6 +169,8 @@ class MangoSignalDetector:
                 direction=htf_direction,
                 entry_zone_low=ltf_data['entry_down'],
                 entry_zone_high=ltf_data['entry_up'],
+                candle_low=ltf_data['low'],
+                candle_high=ltf_data['high'],
                 timeframe=ltf_data['timeframe'],
                 is_scalp=True
             )
@@ -308,32 +312,41 @@ class MangoSignalDetector:
         direction: str,
         entry_zone_low: float,
         entry_zone_high: float,
+        candle_low: float,
+        candle_high: float,
         timeframe: str,
         is_scalp: bool = False
     ) -> Optional[Dict]:
         """
         Calculate Take Profit and Stop Loss levels
-        Returns None if trade is invalid (e.g. Price violates SL logic)
+        Uses recent market structure (wicks) + buffer to prevent tight stop-outs
         """
+        # Add 0.2% buffer for breathing room
+        buffer_pct = 0.002
+        
         if direction == 'LONG':
-            # Long trade: SL is bottom of zone
-            stop_loss = entry_zone_low
+            # SL below entry zone OR candle low (market structure), whichever is lower
+            structural_sl = min(entry_zone_low, candle_low)
+            stop_loss = structural_sl * (1 - buffer_pct)
+            
             risk = entry_price - stop_loss
             
-            # Invalid if Price <= SL (already stopped out)
+            # Invalid if Price <= SL
             if risk <= 0:
                 return None
             
-            # TP based on RR ratio
+            # TP based on RR ratio (2.0 for scalp, 2.5 for swing)
             rr_ratio = 2.0 if is_scalp else 2.5
             take_profit = entry_price + (risk * rr_ratio)
             
         else:
-            # Short trade: SL is top of zone
-            stop_loss = entry_zone_high
-            risk = stop_loss - entry_price
+            # SL above entry zone OR candle high, whichever is higher
+            structural_sl = max(entry_zone_high, candle_high)
+            stop_loss = structural_sl * (1 + buffer_pct)
             
-            # Invalid if Price >= SL (already stopped out)
+            risk = stop_loss - entry_price
+
+            # Invalid if Price >= SL
             if risk <= 0:
                 return None
             
@@ -345,8 +358,8 @@ class MangoSignalDetector:
         actual_rr = abs(take_profit - entry_price) / risk
         
         return {
-            'take_profit': round(take_profit, 2),
-            'stop_loss': round(stop_loss, 2),
+            'take_profit': round(take_profit, 2 if entry_price > 1 else 6),
+            'stop_loss': round(stop_loss, 2 if entry_price > 1 else 6),
             'rr_ratio': round(actual_rr, 1)
         }
     
