@@ -559,14 +559,26 @@ def render_dynamic_levels(datastore):
                 # Fetch screenshot from DB/Local
                 res = datastore.get_screenshot(asset['name'], tf)
                 
-                # Determine Trend (Bullish/Bearish) based on latest scrape
+                # Determine Trend (Prefer scraped, fallback to calc)
                 scrape = scrapes_map.get(tf, {})
                 trend_label = ""
-                if scrape.get('close') and scrape.get('mango_d1') and scrape.get('mango_d2'):
+                scraped_trend = scrape.get('trend')
+                
+                if scraped_trend:
+                    # Use scraped value directly (Single Source of Truth)
+                    t_lower = scraped_trend.lower()
+                    if 'bullish' in t_lower:
+                        trend_label = f" - 🟢 {scraped_trend}"
+                    elif 'bearish' in t_lower:
+                        trend_label = f" - 🔴 {scraped_trend}"
+                    else:
+                        trend_label = f" - ⚪ {scraped_trend}"
+                elif scrape.get('close') and scrape.get('mango_d1') and scrape.get('mango_d2'):
+                     # Fallback to calculation
                      p, d1, d2 = scrape['close'], scrape['mango_d1'], scrape['mango_d2']
-                     if p > d2: trend_label = " - 🟢 Bullish"
-                     elif p < d1: trend_label = " - 🔴 Bearish"
-                     else: trend_label = " - ⚪ Neutral"
+                     if p > d2: trend_label = " - 🟢 Bullish (Calc)"
+                     elif p < d1: trend_label = " - 🔴 Bearish (Calc)"
+                     else: trend_label = " - ⚪ Neutral (Calc)"
 
                 label = f"Timeframe: {tf}{trend_label}"
                 updated_at_str = ""

@@ -46,9 +46,14 @@ class MangoDataStore:
                         entry_up REAL,
                         entry_down REAL,
                         candle_time TEXT,
+                        trend TEXT,
                         UNIQUE(name, timeframe, candle_time)
                     )
                 """)
+                
+                # Ensure trend column exists (Migration)
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN IF NOT EXISTS trend TEXT")
+                except: pass
                 
                 self._execute_query(conn, """
                     CREATE INDEX IF NOT EXISTS idx_scrapes_lookup 
@@ -124,9 +129,14 @@ class MangoDataStore:
                         entry_up REAL,
                         entry_down REAL,
                         candle_time TEXT,
+                        trend TEXT,
                         UNIQUE(name, timeframe, candle_time)
                     )
                 """)
+                
+                # Ensure trend column exists (Migration)
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN trend TEXT")
+                except: pass
                 
                 self._execute_query(conn, """
                     CREATE INDEX IF NOT EXISTS idx_scrapes_lookup 
@@ -262,8 +272,8 @@ class MangoDataStore:
                 INSERT OR REPLACE INTO scrapes (
                 symbol, name, timeframe, tf_type, timestamp,
                     open, high, low, close, volume,
-                    mango_d1, mango_d2, entry_up, entry_down, candle_time
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    mango_d1, mango_d2, entry_up, entry_down, candle_time, trend
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 scrape_data['symbol'],
                 scrape_data['name'],
@@ -279,7 +289,8 @@ class MangoDataStore:
                 pv.get('D2'),
                 pv.get('EntryUp'),
                 pv.get('EntryDown'),
-                candle_time
+                candle_time,
+                pv.get('Trend')
             ))
     
     def save_scrapes(self, scrape_list):

@@ -159,12 +159,20 @@ class TradingViewScraper:
                         return v;
                     };
                     
+                    const parseTrend = () => {
+                        // Matches "Trend: Neutral", "Trend: Bullish", etc.
+                        const re = /Trend[:\s]*([A-Za-z]+)/i;
+                        const m = txt.match(re);
+                        return m ? m[1].trim() : null;
+                    };
+                    
                     res.PlotValues = {
                         Open: findVal('Open', 'O'),
                         High: findVal('High', 'H'),
                         Low: findVal('Low', 'L'),
                         Close: findVal('Close', 'C'),
                         Volume: parseVol(),
+                        Trend: parseTrend(),
                         D1: findVal('MangoD1'),
                         D2: findVal('MangoD2'),
                         EntryUp: findVal('Entry Zone Upper'),
