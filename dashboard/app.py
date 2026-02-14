@@ -234,44 +234,113 @@ def render_signal_history():
             return
         
         # Convert to DataFrame
+        import pandas as pd
         df = pd.DataFrame(history)
         
-        # Format entry_time with better error handling
+        # Helper for timezone conversion
         import pytz
         from datetime import datetime
         
-        def format_entry_time(time_str):
-            """Convert entry_time to EST formatted string"""
+        def format_time_est(time_str):
+            """Convert time string to EST"""
             try:
-                # Try parsing as ISO format
+                if not time_str: return "-"
                 dt = pd.to_datetime(time_str, format='mixed', utc=True)
-                # Convert to EST
                 est = pytz.timezone('America/New_York')
-                dt_est = dt.tz_convert(est)
-                return dt_est.strftime('%Y-%m-%d %I:%M %p')
+                return dt.tz_convert(est).strftime('%m-%d %H:%M')
             except:
-                # Fallback: return as-is if parsing fails
                 return str(time_str)
+
+        # 1. Start Time
+        df['Time'] = df['entry_time'].apply(format_time_est)
         
-        df['entry_time'] = df['entry_time'].apply(format_entry_time)
+        # 2. Exit Time
+        def get_exit_time(row):
+            if row['status'] in ['ACTIVE', 'CREATED']:
+                return "-"
+            return format_time_est(row['updated_at'])
+        
+        df['Exit Time'] = df.apply(get_exit_time, axis=1)
+        
+        # 3. Duration
+        def calculate_duration(row):
+            if row['status'] in ['ACTIVE', 'CREATED']:
+                # Calculate time since entry
+                try:
+                    start = pd.to_datetime(row['entry_time'], format='mixed', utc=True)
+                    now = pd.Timestamp.now(tz='UTC')
+                    diff = now - start
+                    hours = int(diff.total_seconds() // 3600)
+                    mins = int((diff.total_seconds() % 3600) // 60)
+                    return f"{hours}h {mins}m (Open)"
+                except:
+                    return "-"
+            
+            try:
+                start = pd.to_datetime(row['entry_time'], format='mixed', utc=True)
+                end = pd.to_datetime(row['updated_at'], format='mixed', utc=True)
+                diff = end - start
+                hours = int(diff.total_seconds() // 3600)
+                mins = int((diff.total_seconds() % 3600) // 60)
+                return f"{hours}h {mins}m"
+            except:
+                return "-"
+
+        df['Duration'] = df.apply(calculate_duration, axis=1)
+
+        # 4. P&L %
+        def calculate_pnl(row):
+            if row['status'] == 'TP_HIT':
+                exit_price = row['take_profit']
+            elif row['status'] == 'SL_HIT':
+                exit_price = row['stop_loss']
+            else:
+                return None
+            
+            try:
+                if 'LONG' in row['signal_type']:
+                    pnl = (exit_price - row['entry_price']) / row['entry_price']
+                else: # SHORT
+                    pnl = (row['entry_price'] - exit_price) / row['entry_price']
+                return round(pnl * 100, 2)
+            except:
+                return None
+
+        df['PnL %'] = df.apply(calculate_pnl, axis=1)
+
+        # Clean up Confidence
         df['confidence'] = df['confidence'].round(0).astype(int)
         
-        # Select and rename columns for display
-        display_df = df[[
-            'entry_time', 'asset_name', 'signal_type', 'confidence',
-            'entry_price', 'take_profit', 'stop_loss', 'rr_ratio', 'status'
-        ]].copy()
-        
-        display_df.columns = [
-            'Time', 'Asset', 'Type', 'Conf%',
-            'Entry', 'TP', 'SL', 'RR', 'Status'
+        # Select columns for display
+        # Map raw column names to display names if needed, or just create new DF
+        display_columns = [
+            'Time', 'asset_name', 'signal_type', 'confidence',
+            'entry_price', 'take_profit', 'stop_loss', 'status', 
+            'Exit Time', 'Duration', 'PnL %'
         ]
         
-        # Display table
+        # Ensure columns exist (for robustness)
+        available_cols = [c for c in display_columns if c in df.columns]
+        display_df = df[available_cols].copy()
+        
+        # Rename for cleaner UI
+        display_df.columns = [
+            'Entry Time', 'Asset', 'Type', 'Conf', 
+            'Entry', 'TP', 'SL', 'Status', 
+            'Exit Time', 'Duration', 'PnL %'
+        ]
+        
+        # Styling
         st.dataframe(
             display_df,
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
+            column_config={
+                "PnL %": st.column_config.NumberColumn(
+                    "PnL %",
+                    format="%.2f%%",
+                ),
+            }
         )
         
         # Summary stats
@@ -282,11 +351,18 @@ def render_signal_history():
             active_count = len(df[df['status'] == 'ACTIVE'])
             st.metric("Active", active_count)
         with col3:
-            avg_confidence = df['confidence'].mean()
-            st.metric("Avg Confidence", f"{avg_confidence:.0f}%")
+            # Win Rate (TP vs SL)
+            completed = df[df['status'].isin(['TP_HIT', 'SL_HIT'])]
+            if not completed.empty:
+                wins = len(completed[completed['status'] == 'TP_HIT'])
+                win_rate = (wins / len(completed)) * 100
+                st.metric("Win Rate", f"{win_rate:.0f}%")
+            else:
+                st.metric("Win Rate", "0%")
         with col4:
-            avg_rr = df['rr_ratio'].mean()
-            st.metric("Avg RR", f"{avg_rr:.1f}:1")
+            # Total PnL
+            total_pnl = df['PnL %'].sum()
+            st.metric("Total PnL", f"{total_pnl:+.2f}%")
             
     except Exception as e:
         st.error(f"Error loading history: {e}")
