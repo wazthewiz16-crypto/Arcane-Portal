@@ -230,7 +230,7 @@ def render_signal_card(signal):
                 ds = MangoDataStore()
                 img_bytes = ds.get_signal_image(signal_id)
                 if img_bytes:
-                    image_data = img_bytes
+                    image_data = bytes(img_bytes)
             
             if image_data:
                  with st.expander("📸 View Signal Chart"):
@@ -474,7 +474,7 @@ def render_asset_monitor(datastore=None):
                             res = datastore.get_screenshot(asset, tf)
                             # Handle current dict return (image_data, updated_at)
                             if res and isinstance(res, dict):
-                                return res['image_data']
+                                return bytes(res['image_data'])
                             return None
 
                         # HTF
@@ -576,9 +576,14 @@ def render_dynamic_levels(datastore):
                 
                 with st.expander(label):
                     if res and isinstance(res, dict) and res.get('image_data'):
-                        st.image(res['image_data'], use_column_width=True)
-                        if updated_at_str:
-                             st.caption(f"Last Scraped: {updated_at_str} EST")
+                        try:
+                            # Convert memoryview to bytes for st.image
+                            img_data = bytes(res['image_data'])
+                            st.image(img_data, use_column_width=True)
+                            if updated_at_str:
+                                 st.caption(f"Last Scraped: {updated_at_str} EST")
+                        except Exception as e:
+                            st.error(f"Image load error: {e}")
                     else:
                         st.info("No screenshot data found")
             
