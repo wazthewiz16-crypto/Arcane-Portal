@@ -392,12 +392,15 @@ def render_signal_history():
         import traceback
         st.code(traceback.format_exc())
 
-def render_asset_monitor():
+def render_asset_monitor(datastore=None):
     """Render asset monitoring section"""
     st.header("👁️ Asset Monitor")
     
+    if not datastore:
+        from detection.datastore import MangoDataStore
+        datastore = MangoDataStore()
+    
     assets = get_active_assets()
-    datastore = MangoDataStore()
     
     try:
         latest_data = datastore.get_latest_for_all_assets()
@@ -467,7 +470,11 @@ def render_asset_monitor():
                             path = os.path.join("data", "screenshots", f"{asset}_{tf}.png")
                             if os.path.exists(path): return path
                             # Try DB
-                            return datastore.get_screenshot(asset, tf)
+                            res = datastore.get_screenshot(asset, tf)
+                            # Handle current dict return (image_data, updated_at)
+                            if res and isinstance(res, dict):
+                                return res['image_data']
+                            return None
 
                         # HTF
                         htf_img = get_chart_image(name, htf_tf)
@@ -525,8 +532,71 @@ def render_system_health():
         except Exception as e:
             st.error(f"Health check failed: {e}")
 
+def render_dynamic_levels(datastore):
+    """Render list of assets with expandable timeframe screenshots"""
+    st.subheader("Dynamic Levels")
+    
+    # Get active assets
+    from config.assets import get_active_assets
+    assets = get_active_assets()
+    
+    # Layout: 2 Columns to save vertical space
+    cols = st.columns(2)
+    
+    # Scraped timeframes (excluding 5m as it's not scraped)
+    timeframes = ['3m', '15m', '1h', '4h', '12h', '1d', '4d']
+    
+    for i, asset in enumerate(assets):
+        with cols[i % 2]:
+            st.markdown(f"### {asset['name']}")
+            
+            for tf in timeframes:
+                # Fetch screenshot from DB/Local
+                # Ideally check DB for timestamp
+                res = datastore.get_screenshot(asset['name'], tf)
+                
+                label = f"Timeframe: {tf}"
+                updated_at_str = ""
+                
+                if res and isinstance(res, dict) and res.get('updated_at'):
+                    # Parse timestamp for display
+                    try:
+                        dt = datetime.fromisoformat(res['updated_at'])
+                        # Convert to EST for display consistency
+                        import pytz
+                        est = pytz.timezone('America/New_York')
+                        if dt.tzinfo is None:
+                             dt = pytz.utc.localize(dt)
+                        dt_est = dt.astimezone(est)
+                        updated_at_str = dt_est.strftime("%m-%d %H:%M")
+                        label += f" (Updated {updated_at_str})"
+                    except:
+                        pass
+                
+                with st.expander(label):
+                    if res and isinstance(res, dict) and res.get('image_data'):
+                        st.image(res['image_data'], use_column_width=True)
+                        if updated_at_str:
+                             st.caption(f"Last Scraped: {updated_at_str} EST")
+                    else:
+                        st.info("No screenshot data found")
+            
+            st.divider()
+
 def main():
     """Main dashboard function"""
+    st.set_page_config(
+        page_title="Arcane Portal V2",
+        page_icon="🔮",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # Initialize Datastore for Dashboard
+    # Using simple connection pooling via new instance
+    from detection.datastore import MangoDataStore
+    datastore = MangoDataStore()
+    
     # Render header
     render_header()
     
@@ -534,7 +604,7 @@ def main():
     render_system_health()
     
     # Main content tabs
-    tab1, tab2, tab3 = st.tabs(["🚨 Active Signals", "📊 History", "👁️ Assets"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🚨 Active Signals", "📊 History", "👁️ Assets", "📈 Dynamic Levels"])
     
     with tab1:
         render_active_signals()
@@ -543,7 +613,10 @@ def main():
         render_signal_history()
     
     with tab3:
-        render_asset_monitor()
+        render_asset_monitor(datastore)
+    
+    with tab4:
+        render_dynamic_levels(datastore)
     
     # Auto-refresh
     if st.session_state.auto_refresh:

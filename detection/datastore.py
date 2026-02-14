@@ -512,16 +512,19 @@ class MangoDataStore:
             ))
 
     def get_screenshot(self, asset_name, timeframe):
-        """Get screenshot bytes from DB"""
+        """Get screenshot bytes and metadata from DB"""
         with self.get_connection() as conn:
             cursor = self._execute_query(conn, """
-                SELECT image_data FROM screenshots 
+                SELECT image_data, updated_at FROM screenshots 
                 WHERE asset_name = ? AND timeframe = ?
             """, (asset_name, timeframe))
             row = cursor.fetchone()
-            # Handle different return types (tuple vs Row)
+            
             if row:
-                return row[0] if isinstance(row, tuple) else row['image_data']
+                if isinstance(row, tuple):
+                    return {'image_data': row[0], 'updated_at': row[1]}
+                else:
+                    return {'image_data': row['image_data'], 'updated_at': row['updated_at']}
             return None
 
     def save_signal_image(self, signal_id, image_bytes):
