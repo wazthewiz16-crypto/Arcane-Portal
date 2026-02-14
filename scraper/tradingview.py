@@ -20,11 +20,18 @@ class TradingViewScraper:
         symbol = asset['symbol']
         name = asset['name']
         
+        import os
         page = await context.new_page()
         
         try:
-            url = f"https://www.tradingview.com/chart/qR1XTue9/?symbol={symbol}"
-            logger.info(f"Scraping {name} [{timeframe}]...")
+            # allow user to specify layout ID from env, or default to last used (no ID)
+            layout_id = os.getenv('TRADINGVIEW_LAYOUT_ID', '')
+            if layout_id:
+                url = f"https://www.tradingview.com/chart/{layout_id}/?symbol={symbol}"
+            else:
+                url = f"https://www.tradingview.com/chart/?symbol={symbol}"
+
+            logger.info(f"Scraping {name} [{timeframe}] - URL: {url}")
             
             # Increased timeout to 60s
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
