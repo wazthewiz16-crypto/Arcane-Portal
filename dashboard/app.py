@@ -213,14 +213,27 @@ def render_signal_card(signal):
             st.metric("Confidence", f"{confidence:.0f}%", delta=conf_color)
             st.caption(f"RR: {signal['rr_ratio']:.1f}:1")
         
-        # Display Signal Screenshot if available
+        # Display Signal Screenshot
         import os
         signal_id = signal.get('id')
         if signal_id:
+            # Try local first, then DB
             img_path = os.path.join("data", "screenshots", "signals", f"{signal_id}.png")
+            
+            image_data = None
             if os.path.exists(img_path):
+                image_data = img_path
+            else:
+                # Fetch from DB
+                from detection.datastore import MangoDataStore
+                ds = MangoDataStore()
+                img_bytes = ds.get_signal_image(signal_id)
+                if img_bytes:
+                    image_data = img_bytes
+            
+            if image_data:
                  with st.expander("📸 View Signal Chart"):
-                     st.image(img_path, use_column_width=True, caption=f"Chart at Signal Generation ({signal['entry_time']})")
+                     st.image(image_data, use_column_width=True, caption=f"Chart at Signal Generation ({signal['entry_time']})")
         
         st.divider()
 
@@ -448,19 +461,27 @@ def render_asset_monitor():
                     # Chart Screenshots
                     with st.expander("📸 View Charts"):
                         import os
-                        # HTF Screenshot
-                        htf_path = os.path.join("data", "screenshots", f"{name}_{htf_tf}.png")
-                        if os.path.exists(htf_path):
+                        
+                        def get_chart_image(asset, tf):
+                            # Try local
+                            path = os.path.join("data", "screenshots", f"{asset}_{tf}.png")
+                            if os.path.exists(path): return path
+                            # Try DB
+                            return datastore.get_screenshot(asset, tf)
+
+                        # HTF
+                        htf_img = get_chart_image(name, htf_tf)
+                        if htf_img:
                             st.caption(f"HTF ({htf_tf})")
-                            st.image(htf_path, use_column_width=True)
+                            st.image(htf_img, use_column_width=True)
                         
-                        # LTF Screenshot
-                        ltf_path = os.path.join("data", "screenshots", f"{name}_{ltf_tf}.png")
-                        if os.path.exists(ltf_path):
+                        # LTF
+                        ltf_img = get_chart_image(name, ltf_tf)
+                        if ltf_img:
                             st.caption(f"LTF ({ltf_tf})")
-                            st.image(ltf_path, use_column_width=True)
+                            st.image(ltf_img, use_column_width=True)
                         
-                        if not os.path.exists(htf_path) and not os.path.exists(ltf_path):
+                        if not htf_img and not ltf_img:
                             st.info("No screenshots available yet")
 
                     st.divider()

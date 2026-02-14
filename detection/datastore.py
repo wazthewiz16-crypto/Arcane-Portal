@@ -83,6 +83,27 @@ class MangoDataStore:
                     CREATE INDEX IF NOT EXISTS idx_signals_lookup 
                     ON signals(asset_name, status, entry_time)
                 """)
+
+                # Screenshots table (Postgres)
+                self._execute_query(conn, """
+                    CREATE TABLE IF NOT EXISTS screenshots (
+                        asset_name TEXT NOT NULL,
+                        timeframe TEXT NOT NULL,
+                        image_data BYTEA,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (asset_name, timeframe)
+                    )
+                """)
+
+                # Signal Images table (Postgres)
+                self._execute_query(conn, """
+                    CREATE TABLE IF NOT EXISTS signal_images (
+                        signal_id INTEGER PRIMARY KEY,
+                        image_data BYTEA,
+                        FOREIGN KEY(signal_id) REFERENCES signals(id) ON DELETE CASCADE
+                    )
+                """)
+
             else:
                 # SQLite syntax (existing code)
                 self._execute_query(conn, """
@@ -112,7 +133,7 @@ class MangoDataStore:
                     ON scrapes(name, timeframe, candle_time)
                 """)
                 
-                # Signals table (new)
+                # Signals table
                 self._execute_query(conn, """
                     CREATE TABLE IF NOT EXISTS signals (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,6 +160,26 @@ class MangoDataStore:
                 self._execute_query(conn, """
                     CREATE INDEX IF NOT EXISTS idx_signals_lookup 
                     ON signals(asset_name, status, entry_time)
+                """)
+
+                # Screenshots table (SQLite)
+                self._execute_query(conn, """
+                    CREATE TABLE IF NOT EXISTS screenshots (
+                        asset_name TEXT NOT NULL,
+                        timeframe TEXT NOT NULL,
+                        image_data BLOB,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (asset_name, timeframe)
+                    )
+                """)
+
+                # Signal Images table (SQLite)
+                self._execute_query(conn, """
+                    CREATE TABLE IF NOT EXISTS signal_images (
+                        signal_id INTEGER PRIMARY KEY,
+                        image_data BLOB,
+                        FOREIGN KEY(signal_id) REFERENCES signals(id) ON DELETE CASCADE
+                    )
                 """)
     
     @contextmanager
@@ -447,3 +488,67 @@ class MangoDataStore:
             dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
         
         return dt.isoformat()
+
+    def save_screenshot(self, asset_name, timeframe, image_bytes):
+        """Save asset screenshot to DB"""
+        from datetime import datetime
+        with self.get_connection() as conn:
+            # Upsert logic handled manually or via helper
+            if USE_POSTGRES:
+                query = """
+                    INSERT INTO screenshots (asset_name, timeframe, image_data, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (asset_name, timeframe) 
+                    DO UPDATE SET image_data = EXCLUDED.image_data, updated_at = EXCLUDED.updated_at
+                """
+            else:
+                query = """
+                    INSERT OR REPLACE INTO screenshots (asset_name, timeframe, image_data, updated_at)
+                    VALUES (?, ?, ?, ?)
+                """
+            
+            self._execute_query(conn, query, (
+                asset_name, timeframe, image_bytes, datetime.utcnow().isoformat()
+            ))
+
+    def get_screenshot(self, asset_name, timeframe):
+        """Get screenshot bytes from DB"""
+        with self.get_connection() as conn:
+            cursor = self._execute_query(conn, """
+                SELECT image_data FROM screenshots 
+                WHERE asset_name = ? AND timeframe = ?
+            """, (asset_name, timeframe))
+            row = cursor.fetchone()
+            # Handle different return types (tuple vs Row)
+            if row:
+                return row[0] if isinstance(row, tuple) else row['image_data']
+            return None
+
+    def save_signal_image(self, signal_id, image_bytes):
+        """Save signal screenshot to DB"""
+        with self.get_connection() as conn:
+            if USE_POSTGRES:
+                query = """
+                    INSERT INTO signal_images (signal_id, image_data)
+                    VALUES (?, ?)
+                    ON CONFLICT (signal_id) DO UPDATE SET image_data = EXCLUDED.image_data
+                """
+            else:
+                query = """
+                    INSERT OR REPLACE INTO signal_images (signal_id, image_data)
+                    VALUES (?, ?)
+                """
+                 
+            self._execute_query(conn, query, (signal_id, image_bytes))
+
+    def get_signal_image(self, signal_id):
+        """Get signal screenshot bytes from DB"""
+        with self.get_connection() as conn:
+            cursor = self._execute_query(conn, """
+                SELECT image_data FROM signal_images 
+                WHERE signal_id = ?
+            """, (signal_id,))
+            row = cursor.fetchone()
+            if row:
+                return row[0] if isinstance(row, tuple) else row['image_data']
+            return None

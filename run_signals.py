@@ -47,6 +47,15 @@ async def run_scraper_and_detect():
             # Save to database
             datastore.save_scrapes(results)
             print(f"✅ Saved to database")
+            
+            # Save screenshots to DB for cross-process access
+            count = 0
+            for r in results:
+                if 'screenshot_bytes' in r:
+                    datastore.save_screenshot(r['name'], r['timeframe'], r['screenshot_bytes'])
+                    count += 1
+            if count > 0:
+                print(f"📸 Saved {count} screenshots to DB")
         else:
             if use_smart_scheduling:
                 print("⏭️  No timeframes needed scraping at this time")
@@ -134,6 +143,14 @@ async def run_scraper_and_detect():
                     shutil.copy2(src_path, dest_path)
                     signal['image_path'] = dest_path # Pass to notifier
                     print(f"  📸 Attached screenshot for signal {signal_id}")
+                    
+                    # Save to DB for cross-process access (Dashboard)
+                    try:
+                        with open(dest_path, "rb") as f:
+                             datastore.save_signal_image(signal_id, f.read())
+                    except Exception as e:
+                        print(f"  ⚠️  Failed to save signal image to DB: {e}")
+                        
                 except Exception as e:
                     print(f"  ⚠️  Failed to copy screenshot: {e}")
             
