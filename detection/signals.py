@@ -88,7 +88,7 @@ class MangoSignalDetector:
                 continue
             
             # Calculate confidence
-            confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=True)
+            confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=True, is_bounce=ltf_entry.get('is_bounce', False))
             
             # Determine signal type
             signal_type = SignalType.SWING_LONG if htf_direction == 'LONG' else SignalType.SWING_SHORT
@@ -158,7 +158,7 @@ class MangoSignalDetector:
                 continue
             
             # Calculate confidence (stricter for scalps)
-            confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=False)
+            confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=False, is_bounce=ltf_entry.get('is_bounce', False))
             
             # Determine signal type
             signal_type = SignalType.SCALP_LONG if htf_direction == 'LONG' else SignalType.SCALP_SHORT
@@ -239,16 +239,45 @@ class MangoSignalDetector:
         if not (price and entry_up and entry_down):
             return {'valid': False, 'reason': 'Missing data'}
         
+        # 1. Chop Filter (Prop Firm Rule #1)
+        # Verify the zone has enough width to be a valid trend, not a squeeze/chop
+        # Width is difference between Entry Up and Entry Down relative to Price
+        zone_width_pct = abs(entry_up - entry_down) / price
+        min_width = 0.003  # 0.3% minimum width to avoid super flat chop
+        
+        if zone_width_pct < min_width:
+             return {'valid': False, 'reason': f'Chop/Squeeze detected (Zone width {zone_width_pct*100:.2f}%)'}
+
+        # 2. Check Entry
         # Check if price is in entry zone
         in_zone = entry_down <= price <= entry_up
         
         # Additional check: price should be near the zone boundary appropriate for direction
+        near_entry = False
+        is_bounce = False
+        
         if direction == 'LONG':
-            # For longs, prefer entry near bottom of zone
-            near_entry = abs(price - entry_down) / entry_down < 0.01  # Within 1%
+            # Breakout/Bounce: Price is above Entry Up but close (within 1.5%)
+            near_entry = price > entry_up and (price - entry_up) / entry_up < 0.015
+            
+            # Perfect Bounce Pattern: Low wicked into zone, Close is above/near top
+            # This aligns with "Wait for price to pull back and touch... then break back above"
+            if price > entry_down: # Must be above bottom of support
+                low = ltf_data.get('low', price)
+                # Did we touch the zone?
+                touched_zone = low <= entry_up
+                if touched_zone and (in_zone or near_entry):
+                    is_bounce = True
+                    
         else:
-            # For shorts, prefer entry near top of zone
-            near_entry = abs(price - entry_up) / entry_up < 0.01
+            # Short logic
+            near_entry = price < entry_down and (entry_down - price) / entry_down < 0.015
+            
+            if price < entry_up: # Must be below top of resistance
+                high = ltf_data.get('high', price)
+                touched_zone = high >= entry_down
+                if touched_zone and (in_zone or near_entry):
+                    is_bounce = True
         
         valid = in_zone or near_entry
         
@@ -256,16 +285,17 @@ class MangoSignalDetector:
             'valid': valid,
             'in_zone': in_zone,
             'near_entry': near_entry,
+            'is_bounce': is_bounce,
             'reason': 'Valid entry' if valid else 'Not in entry zone'
         }
     
-    def _calculate_confidence(self, htf_data: Dict, ltf_data: Dict, is_swing: bool) -> float:
+    def _calculate_confidence(self, htf_data: Dict, ltf_data: Dict, is_swing: bool, is_bounce: bool = False) -> float:
         """
         Calculate signal confidence (0-100%)
         
         Factors:
         - HTF trend strength
-        - LTF entry quality
+        - LTF entry quality (Bounce/Breakout)
         - Volume confirmation
         - Mango D1/D2 alignment
         """
@@ -302,6 +332,10 @@ class MangoSignalDetector:
         # Swing trades get slight boost for longer timeframe
         if is_swing:
             confidence += 5
+            
+        # Perfect Bounce Pattern Reward (Prop Firm Rule #2)
+        if is_bounce:
+            confidence += 10
         
         # Cap at 100%
         return min(confidence, 100.0)
