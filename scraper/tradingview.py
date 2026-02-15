@@ -87,7 +87,9 @@ class TradingViewScraper:
             # Map timeframe to TradingView format
             timeframe_map = {
                 "3m": "3",
+                "5m": "5",
                 "15m": "15",
+                "30m": "30",
                 "1h": "1H",
                 "4h": "4H",
                 "12h": "12H",

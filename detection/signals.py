@@ -90,7 +90,9 @@ class MangoSignalDetector:
         # Try different HTF/LTF combinations for swing trading
         # Try different HTF/LTF combinations for swing trading
         combinations = [
-            ('1d', '4h'),   # Daily/4H is the primary swing combination
+            ('4d', '1d'),   # Weekly/Daily swing
+            ('1d', '4h'),   # Daily/4H swing
+            ('12h', '1h'),  # 12H/1H swing
         ]
         
         for htf_tf, ltf_tf in combinations:
@@ -160,8 +162,9 @@ class MangoSignalDetector:
         """
         # Try different HTF/LTF combinations for scalp trading
         combinations = [
-            ('1h', '15m'),  # Primary scalp combination
-            ('4h', '1h'),   # Alternative scalp combination
+            ('4h', '15m'),  # 4H/15m scalp
+            ('1h', '5m'),   # 1H/5m scalp
+            ('30m', '3m'),  # 30m/3m scalp
         ]
         
         for htf_tf, ltf_tf in combinations:

@@ -29,14 +29,17 @@ MIN_CONFIDENCE_SCALP = float(os.getenv("MIN_CONFIDENCE_SCALP", "75"))
 STREAMLIT_SERVER_PORT = int(os.getenv("STREAMLIT_SERVER_PORT", "8501"))
 
 # Scraping Intervals (in minutes)
+# Scraping Intervals (in minutes)
 SCRAPE_INTERVALS = {
     "3m": 3,
+    "5m": 5,
     "15m": 15,
-    "1h": 30,
-    "4h": 120,
-    "12h": 240,
-    "1d": 480,
-    "4d": 1440
+    "30m": 30,
+    "1h": 60,
+    "4h": 240,
+    "12h": 720,
+    "1d": 1440,
+    "4d": 5760
 }
 
 # TradingView Layouts (Per-Timeframe Settings Support)
@@ -48,6 +51,7 @@ LAYOUTS = {
     "12h": os.getenv("TRADINGVIEW_LAYOUT_12H", ""),
     "4h": os.getenv("TRADINGVIEW_LAYOUT_4H", ""),
     "1h": os.getenv("TRADINGVIEW_LAYOUT_1H", ""),
+    "30m": os.getenv("TRADINGVIEW_LAYOUT_30M", ""),
     "15m": os.getenv("TRADINGVIEW_LAYOUT_15M", ""),
     "5m": os.getenv("TRADINGVIEW_LAYOUT_5M", ""),
     "3m": os.getenv("TRADINGVIEW_LAYOUT_3M", "")
