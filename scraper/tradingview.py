@@ -14,6 +14,16 @@ class TradingViewScraper:
     
     def __init__(self, state_file=STATE_FILE):
         self.state_file = Path(state_file)
+        
+        # Support cloud deployment: Restore state from Env Var if file missing
+        import os
+        if not self.state_file.exists() and os.getenv("TRADINGVIEW_STATE_JSON"):
+            try:
+                logger.info("Restoring TradingView session state from environment variable...")
+                with open(self.state_file, "w") as f:
+                    f.write(os.getenv("TRADINGVIEW_STATE_JSON"))
+            except Exception as e:
+                logger.error(f"Failed to restore state from env: {e}")
     
     async def scrape_asset(self, context, asset, timeframe):
         """Scrape a single asset/timeframe using existing browser context"""
@@ -29,6 +39,16 @@ class TradingViewScraper:
             layout_id = settings.LAYOUTS.get(timeframe.lower())
             if not layout_id:
                 layout_id = settings.LAYOUTS.get('default')
+            
+            # Extract ID if URL is provided (e.g. from https://www.tradingview.com/chart/ID/)
+            if layout_id and 'tradingview.com/chart/' in str(layout_id):
+                try:
+                    import re
+                    match = re.search(r'chart/([^/]+)', str(layout_id))
+                    if match:
+                        layout_id = match.group(1)
+                except Exception:
+                    pass
                 
             if layout_id:
                 url = f"https://www.tradingview.com/chart/{layout_id}/?symbol={symbol}"
