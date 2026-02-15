@@ -192,6 +192,23 @@ class MangoSignalDetector:
                     continue
             # ---------------------------------------------
             
+            # ---------------------------------------------
+            
+            # --- Candle Color Check (Scalp Only) ---
+            # Ensure momentum aligns with trade direction (Green for Long, Red for Short)
+            open_price = ltf_data.get('open')
+            close_price = ltf_data.get('close')
+            
+            if open_price and close_price:
+                is_bullish = close_price > open_price
+                is_bearish = close_price < open_price
+                
+                if htf_direction == 'LONG' and not is_bullish:
+                    continue # Skip Long if candle is Red/Doji
+                elif htf_direction == 'SHORT' and not is_bearish:
+                    continue # Skip Short if candle is Green/Doji
+            # ---------------------------------------
+            
             ltf_entry = self._check_ltf_entry(ltf_data, htf_direction)
             if not ltf_entry['valid']:
                 continue
