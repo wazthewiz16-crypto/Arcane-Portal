@@ -179,6 +179,19 @@ class MangoSignalDetector:
             if not htf_direction or htf_direction == 'NEUTRAL':
                 continue  # Skip neutral trends (price inside Mango Dynamic)
             
+            # --- Grandmaster Filter (Daily Trend Check) ---
+            # Ensure scalp direction aligns with Daily trend
+            daily_data = timeframes.get('1d')
+            if daily_data:
+                daily_dir = self._get_htf_direction(daily_data)
+                
+                # Strict: Daily must match HTF direction (LONG/SHORT)
+                # If Daily is Neutral or Opposite, we skip.
+                if daily_dir != htf_direction:
+                    # logger.debug(f"Skipping scalp for {name}: Daily {daily_dir} vs HTF {htf_direction}")
+                    continue
+            # ---------------------------------------------
+            
             ltf_entry = self._check_ltf_entry(ltf_data, htf_direction)
             if not ltf_entry['valid']:
                 continue
