@@ -107,6 +107,15 @@ class MangoSignalDetector:
             if not htf_direction or htf_direction == 'NEUTRAL':
                 continue  # Skip neutral trends (price inside Mango Dynamic)
             
+            # --- Swing Trend Alignment Check ---
+            # Don't trade against the LTF trend (e.g. Don't Short if 4H is Bullish)
+            ltf_direction = self._get_htf_direction(ltf_data)
+            if htf_direction == 'LONG' and ltf_direction == 'SHORT':
+                continue # Reject Long if LTF is Bearish
+            if htf_direction == 'SHORT' and ltf_direction == 'LONG':
+                continue # Reject Short if LTF is Bullish
+            # -----------------------------------
+            
             # Check LTF entry conditions
             ltf_entry = self._check_ltf_entry(ltf_data, htf_direction)
             if not ltf_entry['valid']:
@@ -256,9 +265,17 @@ class MangoSignalDetector:
     def _get_htf_direction(self, htf_data: Dict) -> Optional[str]:
         """
         Determine HTF trend direction
-        
+        Prioritizes scraped 'Trend' text from TradingView if available.
         Returns: 'LONG', 'SHORT', 'NEUTRAL', or None
         """
+        # 1. Prefer Scraped Trend (Single Source of Truth)
+        scraped_trend = htf_data.get('trend')
+        if scraped_trend:
+            if 'Bullish' in scraped_trend: return 'LONG'
+            if 'Bearish' in scraped_trend: return 'SHORT'
+            if 'Neutral' in scraped_trend: return 'NEUTRAL'
+
+        # 2. Fallback to Calculation
         price = htf_data.get('close')
         mango_d1 = htf_data.get('mango_d1')
         mango_d2 = htf_data.get('mango_d2')
