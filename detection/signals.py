@@ -321,7 +321,57 @@ class MangoSignalDetector:
         if zone_width_pct < min_width:
              return {'valid': False, 'reason': f'Chop/Squeeze detected (Zone width {zone_width_pct*100:.2f}%)'}
 
-        # 2. Check Entry
+        # --- PHASE 1 IMPROVEMENTS ---
+        
+        # 2. Candle Size Filter (Avoid dojis and indecision)
+        open_price = ltf_data.get('open', price)
+        high = ltf_data.get('high', price)
+        low = ltf_data.get('low', price)
+        
+        candle_body = abs(price - open_price)
+        candle_range = high - low
+        
+        # Require meaningful candle body (not doji)
+        if candle_range > 0:
+            body_ratio = candle_body / candle_range
+            if body_ratio < 0.5:  # Body must be at least 50% of range
+                return {'valid': False, 'reason': 'Doji/indecision candle (weak body)'}
+        
+        # Require minimum candle size (0.4% of price)
+        if candle_body / price < 0.004:  # 0.4% minimum
+            return {'valid': False, 'reason': 'Candle too small (lacks conviction)'}
+        
+        # 3. Momentum Confirmation (Close position)
+        # For LONG: Close should be in upper half of candle (strong close)
+        # For SHORT: Close should be in lower half of candle (weak close)
+        if candle_range > 0:
+            close_position = (price - low) / candle_range
+            
+            if direction == 'LONG' and close_position < 0.5:
+                return {'valid': False, 'reason': 'Weak close for long (not in upper half)'}
+                
+            if direction == 'SHORT' and close_position > 0.5:
+                return {'valid': False, 'reason': 'Weak close for short (not in lower half)'}
+        
+        # 4. Optimal Entry Zone Filter (Bottom 40% for longs, Top 40% for shorts)
+        # This ensures we enter near support (longs) or resistance (shorts)
+        # Not in the middle or wrong end of the zone
+        zone_size = entry_up - entry_down
+        
+        if direction == 'LONG':
+            # For longs: Only enter in bottom 40% of zone (near support)
+            optimal_entry_top = entry_down + (zone_size * 0.4)
+            if price > optimal_entry_top:
+                return {'valid': False, 'reason': f'Price too high in zone (want bottom 40%)'}
+        else:
+            # For shorts: Only enter in top 40% of zone (near resistance)
+            optimal_entry_bottom = entry_up - (zone_size * 0.4)
+            if price < optimal_entry_bottom:
+                return {'valid': False, 'reason': f'Price too low in zone (want top 40%)'}
+        
+        # --- END PHASE 1 IMPROVEMENTS ---
+
+        # 5. Check Entry Position
         # Check if price is in entry zone
         in_zone = entry_down <= price <= entry_up
         
@@ -333,7 +383,6 @@ class MangoSignalDetector:
             # Check for bounce (Low wicked into zone)
             # Must be above entry_down to be a valid bounce off support (not below it)
             if price > entry_down: 
-                low = ltf_data.get('low', price)
                 # Touched zone (Low <= Top of zone)
                 if low <= entry_up:
                     is_bounce = True
@@ -352,7 +401,6 @@ class MangoSignalDetector:
             # Short logic
             # Check for bounce (High wicked into zone)
             if price < entry_up:
-                high = ltf_data.get('high', price)
                 # Touched zone (High >= Bottom of zone)
                 if high >= entry_down:
                     is_bounce = True
@@ -438,23 +486,22 @@ class MangoSignalDetector:
     ) -> Optional[Dict]:
         """
         Calculate Take Profit and Stop Loss levels
-        Uses recent market structure (wicks) + buffer to prevent tight stop-outs
         
-        Adjustments:
-        - Wider stops with timeframe-specific buffers
+        PHASE 1 IMPROVEMENTS (Option B):
+        - Uses Mango Dynamic boundaries as natural stops
         - Scalps (15m): 1.5-2R
         - Swings (4H-1D): 2-3R
+        
+        Rationale: The Mango Dynamic zone itself represents support/resistance.
+        Using these boundaries as stops aligns with the indicator's logic and
+        provides significantly wider stops than percentage-based buffers.
         """
-        # Timeframe-specific buffer (wider stops for scalps to avoid noise)
-        # Scalps need more room due to higher volatility on lower timeframes
-        if is_scalp:
-            buffer_pct = 0.005  # 0.5% buffer for scalps
-        else:
-            buffer_pct = 0.003  # 0.3% buffer for swings
+        
+        # Small buffer beyond Mango Dynamic boundaries
+        # This is MUCH wider than previous 0.5%/0.3% fixed buffers
+        buffer_pct = 0.005  # 0.5% beyond the zone boundary
         
         # Determine RR ratio based on timeframe
-        # Scalps: 1.5-2R (use 1.75R average)
-        # Swings: 2-3R (vary by timeframe)
         if is_scalp:
             # Scalp timeframes (3m, 5m, 15m)
             if timeframe in ['3m', '5m']:
@@ -469,13 +516,14 @@ class MangoSignalDetector:
                 rr_ratio = 3.0  # Longer-term swings get higher RR
         
         if direction == 'LONG':
-            # SL below entry zone OR candle low (market structure), whichever is lower
-            structural_sl = min(entry_zone_low, candle_low)
-            stop_loss = structural_sl * (1 - buffer_pct)
+            # OPTION B: Use Mango Dynamic Lower Boundary (entry_down) as natural stop
+            # This respects the indicator's support level
+            # For Longs: SL below the support zone
+            stop_loss = entry_zone_low * (1 - buffer_pct)
             
             risk = entry_price - stop_loss
             
-            # Invalid if Price <= SL
+            # Invalid if Price <= SL (shouldn't happen with proper entries)
             if risk <= 0:
                 return None
             
@@ -483,9 +531,10 @@ class MangoSignalDetector:
             take_profit = entry_price + (risk * rr_ratio)
             
         else:
-            # SL above entry zone OR candle high, whichever is higher
-            structural_sl = max(entry_zone_high, candle_high)
-            stop_loss = structural_sl * (1 + buffer_pct)
+            # OPTION B: Use Mango Dynamic Upper Boundary (entry_up) as natural stop
+            # This respects the indicator's resistance level
+            # For Shorts: SL above the resistance zone
+            stop_loss = entry_zone_high * (1 + buffer_pct)
             
             risk = stop_loss - entry_price
 
