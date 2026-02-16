@@ -439,9 +439,34 @@ class MangoSignalDetector:
         """
         Calculate Take Profit and Stop Loss levels
         Uses recent market structure (wicks) + buffer to prevent tight stop-outs
+        
+        Adjustments:
+        - Wider stops with timeframe-specific buffers
+        - Scalps (15m): 1.5-2R
+        - Swings (4H-1D): 2-3R
         """
-        # Add 0.2% buffer for breathing room
-        buffer_pct = 0.002
+        # Timeframe-specific buffer (wider stops for scalps to avoid noise)
+        # Scalps need more room due to higher volatility on lower timeframes
+        if is_scalp:
+            buffer_pct = 0.005  # 0.5% buffer for scalps
+        else:
+            buffer_pct = 0.003  # 0.3% buffer for swings
+        
+        # Determine RR ratio based on timeframe
+        # Scalps: 1.5-2R (use 1.75R average)
+        # Swings: 2-3R (vary by timeframe)
+        if is_scalp:
+            # Scalp timeframes (3m, 5m, 15m)
+            if timeframe in ['3m', '5m']:
+                rr_ratio = 1.5  # Tighter for very short timeframes
+            else:  # 15m
+                rr_ratio = 2.0  # Standard scalp
+        else:
+            # Swing timeframes (4h, 1d, 12h, 4d)
+            if timeframe in ['4h', '12h']:
+                rr_ratio = 2.5  # Mid-range swings
+            else:  # 1d, 4d
+                rr_ratio = 3.0  # Longer-term swings get higher RR
         
         if direction == 'LONG':
             # SL below entry zone OR candle low (market structure), whichever is lower
@@ -454,8 +479,7 @@ class MangoSignalDetector:
             if risk <= 0:
                 return None
             
-            # TP based on RR ratio (2.0 for scalp, 2.5 for swing)
-            rr_ratio = 2.0 if is_scalp else 2.5
+            # TP based on timeframe-specific RR ratio
             take_profit = entry_price + (risk * rr_ratio)
             
         else:
@@ -469,8 +493,7 @@ class MangoSignalDetector:
             if risk <= 0:
                 return None
             
-            # TP based on RR ratio
-            rr_ratio = 2.0 if is_scalp else 2.5
+            # TP based on timeframe-specific RR ratio
             take_profit = entry_price - (risk * rr_ratio)
         
         # Calculate actual RR ratio
