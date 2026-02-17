@@ -21,9 +21,9 @@ DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR}/mango_scraper.db
 HEADLESS_BROWSER = os.getenv("HEADLESS_BROWSER", "true").lower() == "true"
 TV_STATE_FILE = PROJECT_ROOT / "tv_state.json"
 
-# Signal Confidence Thresholds (Phase 1: Increased for quality over quantity)
-MIN_CONFIDENCE_SWING = float(os.getenv("MIN_CONFIDENCE_SWING", "70"))  # Up from 60
-MIN_CONFIDENCE_SCALP = float(os.getenv("MIN_CONFIDENCE_SCALP", "80"))  # Up from 75
+# Signal Confidence Thresholds (Adjusted for balance between quality and quantity)
+MIN_CONFIDENCE_SWING = float(os.getenv("MIN_CONFIDENCE_SWING", "65"))  # Relaxed from 70
+MIN_CONFIDENCE_SCALP = float(os.getenv("MIN_CONFIDENCE_SCALP", "75"))  # Relaxed from 80
 
 # Streamlit Configuration
 STREAMLIT_SERVER_PORT = int(os.getenv("STREAMLIT_SERVER_PORT", "8501"))

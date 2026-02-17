@@ -337,8 +337,8 @@ class MangoSignalDetector:
             if body_ratio < 0.5:  # Body must be at least 50% of range
                 return {'valid': False, 'reason': 'Doji/indecision candle (weak body)'}
         
-        # Require minimum candle size (0.4% of price)
-        if candle_body / price < 0.004:  # 0.4% minimum
+        # Require minimum candle size (0.3% of price - relaxed from 0.4%)
+        if candle_body / price < 0.003:  # 0.3% minimum
             return {'valid': False, 'reason': 'Candle too small (lacks conviction)'}
         
         # 3. Optimal Entry Zone Filter (Bottom 60% for longs, Top 60% for shorts)
