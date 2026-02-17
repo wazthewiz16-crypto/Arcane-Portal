@@ -331,31 +331,31 @@ class MangoSignalDetector:
         candle_body = abs(price - open_price)
         candle_range = high - low
         
-        # Require meaningful candle body (not doji)
+        # Require meaningful candle body (not doji) - relaxed to 40%
         if candle_range > 0:
             body_ratio = candle_body / candle_range
-            if body_ratio < 0.5:  # Body must be at least 50% of range
+            if body_ratio < 0.4:  # Body must be at least 40% of range (relaxed from 50%)
                 return {'valid': False, 'reason': 'Doji/indecision candle (weak body)'}
         
         # Require minimum candle size (0.3% of price - relaxed from 0.4%)
         if candle_body / price < 0.003:  # 0.3% minimum
             return {'valid': False, 'reason': 'Candle too small (lacks conviction)'}
         
-        # 3. Optimal Entry Zone Filter (Bottom 70% for longs, Top 70% for shorts)
-        # Relaxed from 60% to 70% to restore signal generation while still filtering poor entries
+        # 3. Optimal Entry Zone Filter (Bottom 80% for longs, Top 80% for shorts)
+        # Relaxed from 70% to 80% - allows most of the zone while still filtering extreme edges
         # This ensures we enter near support (longs) or resistance (shorts)
         zone_size = entry_up - entry_down
         
         if direction == 'LONG':
-            # For longs: Only enter in bottom 70% of zone (near support)
-            optimal_entry_top = entry_down + (zone_size * 0.7)
+            # For longs: Only enter in bottom 80% of zone (near support)
+            optimal_entry_top = entry_down + (zone_size * 0.8)
             if price > optimal_entry_top:
-                return {'valid': False, 'reason': f'Price too high in zone (want bottom 70%)'}
+                return {'valid': False, 'reason': f'Price too high in zone (want bottom 80%)'}
         else:
-            # For shorts: Only enter in top 70% of zone (near resistance)
-            optimal_entry_bottom = entry_up - (zone_size * 0.7)
+            # For shorts: Only enter in top 80% of zone (near resistance)
+            optimal_entry_bottom = entry_up - (zone_size * 0.8)
             if price < optimal_entry_bottom:
-                return {'valid': False, 'reason': f'Price too low in zone (want top 70%)'}
+                return {'valid': False, 'reason': f'Price too low in zone (want top 80%)'}
         
         # --- END PHASE 1 IMPROVEMENTS ---
 
