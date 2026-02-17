@@ -341,33 +341,21 @@ class MangoSignalDetector:
         if candle_body / price < 0.004:  # 0.4% minimum
             return {'valid': False, 'reason': 'Candle too small (lacks conviction)'}
         
-        # 3. Momentum Confirmation (Close position)
-        # For LONG: Close should be in upper half of candle (strong close)
-        # For SHORT: Close should be in lower half of candle (weak close)
-        if candle_range > 0:
-            close_position = (price - low) / candle_range
-            
-            if direction == 'LONG' and close_position < 0.5:
-                return {'valid': False, 'reason': 'Weak close for long (not in upper half)'}
-                
-            if direction == 'SHORT' and close_position > 0.5:
-                return {'valid': False, 'reason': 'Weak close for short (not in lower half)'}
-        
-        # 4. Optimal Entry Zone Filter (Bottom 40% for longs, Top 40% for shorts)
+        # 3. Optimal Entry Zone Filter (Bottom 60% for longs, Top 60% for shorts)
+        # Relaxed from 40% to 60% to restore signal generation while still filtering poor entries
         # This ensures we enter near support (longs) or resistance (shorts)
-        # Not in the middle or wrong end of the zone
         zone_size = entry_up - entry_down
         
         if direction == 'LONG':
-            # For longs: Only enter in bottom 40% of zone (near support)
-            optimal_entry_top = entry_down + (zone_size * 0.4)
+            # For longs: Only enter in bottom 60% of zone (near support)
+            optimal_entry_top = entry_down + (zone_size * 0.6)
             if price > optimal_entry_top:
-                return {'valid': False, 'reason': f'Price too high in zone (want bottom 40%)'}
+                return {'valid': False, 'reason': f'Price too high in zone (want bottom 60%)'}
         else:
-            # For shorts: Only enter in top 40% of zone (near resistance)
-            optimal_entry_bottom = entry_up - (zone_size * 0.4)
+            # For shorts: Only enter in top 60% of zone (near resistance)
+            optimal_entry_bottom = entry_up - (zone_size * 0.6)
             if price < optimal_entry_bottom:
-                return {'valid': False, 'reason': f'Price too low in zone (want top 40%)'}
+                return {'valid': False, 'reason': f'Price too low in zone (want top 60%)'}
         
         # --- END PHASE 1 IMPROVEMENTS ---
 
