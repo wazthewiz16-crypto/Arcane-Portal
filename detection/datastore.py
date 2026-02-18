@@ -7,7 +7,8 @@ from contextlib import contextmanager
 
 # Check if we should use PostgreSQL (Railway) or SQLite (local)
 DATABASE_URL = os.getenv('DATABASE_URL')
-USE_POSTGRES = DATABASE_URL is not None
+# Only use Postgres if DATABASE_URL is set AND starts with postgres (not sqlite://)
+USE_POSTGRES = DATABASE_URL is not None and DATABASE_URL.startswith('postgres')
 
 if USE_POSTGRES:
     import psycopg2

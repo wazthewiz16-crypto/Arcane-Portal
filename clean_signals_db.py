@@ -3,10 +3,15 @@ Utility script to clean/reset the signals database
 Use this to purge old signals before starting fresh tracking
 """
 import sys
+import os
 from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
+
+# Load .env file BEFORE importing datastore (which checks DATABASE_URL at import time)
+from dotenv import load_dotenv
+load_dotenv(override=True)
 
 from detection.datastore import MangoDataStore
 from datetime import datetime

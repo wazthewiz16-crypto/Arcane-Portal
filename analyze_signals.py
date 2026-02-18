@@ -6,6 +6,10 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Load .env file BEFORE importing datastore
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 from detection.datastore import MangoDataStore
 from datetime import datetime, timedelta
 from collections import defaultdict
