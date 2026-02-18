@@ -30,8 +30,8 @@ class TimeframeScheduler:
         now = datetime.now(self.utc)
         timeframes_to_scrape = []
         
-        # 3m: Scrape every time the worker runs
-        timeframes_to_scrape.append('3m')
+        # 3m: Scrape removed as per optimization request
+        # timeframes_to_scrape.append('3m')
         
         # 15m: Scrape every time the worker runs
         timeframes_to_scrape.append('15m')

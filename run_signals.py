@@ -12,27 +12,12 @@ from detection.signals import MangoSignalDetector
 from integrations.discord_notifier import DiscordNotifier
 from config.assets import get_active_assets
 from utils.logger import setup_logger
-from utils.time_window import is_within_operating_hours, get_operating_hours_info
 import asyncio
 
 logger = setup_logger(__name__)
 
 async def run_scraper_and_detect():
     """Run scraper, detect signals, and send Discord alerts"""
-    
-    # Check if within operating hours (5am - 11pm EST)
-    if not is_within_operating_hours():
-        info = get_operating_hours_info()
-        print("=" * 60)
-        print("[SLEEPING] OUTSIDE OPERATING HOURS")
-        print("=" * 60)
-        print(f"Current Time: {info['current_time_est']}")
-        print(f"Status: {info['status']}")
-        print(f"Operating Hours: {info['operating_hours']}")
-        print(f"{info['next_change']}")
-        print("=" * 60)
-        logger.info(f"Skipping execution - outside operating hours. {info['next_change']}")
-        return
     
     print("=" * 60)
     print("ARCANE PORTAL V2 - MANUAL SIGNAL GENERATION")
