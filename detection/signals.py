@@ -337,17 +337,33 @@ class MangoSignalDetector:
             if body_ratio < 0.4:  # Body must be at least 40% of range (relaxed from 50%)
                 return {'valid': False, 'reason': 'Doji/indecision candle (weak body)'}
         
-        # Require minimum candle size (0.25% of price - relaxed for better frequency)
-        if candle_body / price < 0.0025:  # 0.25% minimum (was 0.3%)
-            return {'valid': False, 'reason': 'Candle too small (lacks conviction)'}
+        # 3. Momentum Confirmation (Close position) - Re-enabled for Quality
+        # For LONG: Close should be in upper half of candle (strong close)
+        # For SHORT: Close should be in lower half of candle (weak close)
+        if candle_range > 0:
+            close_position = (price - low) / candle_range
+            
+            if direction == 'LONG' and close_position < 0.5:
+                return {'valid': False, 'reason': 'Weak close for long (not in upper half)'}
+                
+            if direction == 'SHORT' and close_position > 0.5:
+                return {'valid': False, 'reason': 'Weak close for short (not in lower half)'}
+
+        # 4. Optimal Entry Zone Filter (Bottom 85% for longs, Top 85% for shorts)
+        # Re-enabled at 85% (Very Permissive) to avoid entering at the very worst edge of the zone.
+        # This prevents buying at the absolute top of support or selling at the absolute bottom of resistance.
+        zone_size = entry_up - entry_down
         
-        # Entry Zone Filter REMOVED (Balanced Approach)
-        # Rationale: The entire Mango zone is designed for entries.
-        # Limiting to 80% was too restrictive and redundant with:
-        # - Confidence scoring (evaluates entry quality)
-        # - Chop detection (ensures zone width)
-        # - Trend alignment (ensures direction)
-        # Removing this increases frequency ~30% while quality is maintained by higher confidence.
+        if direction == 'LONG':
+            # For longs: Only enter in bottom 85% of zone (near support)
+            optimal_entry_top = entry_down + (zone_size * 0.85)
+            if price > optimal_entry_top:
+                return {'valid': False, 'reason': f'Price too high in zone (want bottom 85%)'}
+        else:
+            # For shorts: Only enter in top 85% of zone (near resistance)
+            optimal_entry_bottom = entry_up - (zone_size * 0.85)
+            if price < optimal_entry_bottom:
+                return {'valid': False, 'reason': f'Price too low in zone (want top 85%)'}
         
         # --- END PHASE 1 IMPROVEMENTS ---
 
