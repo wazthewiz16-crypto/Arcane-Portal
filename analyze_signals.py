@@ -18,8 +18,12 @@ class SignalAnalyzer:
     def analyze_recent_signals(self, hours=24):
         """Analyze signals from the last N hours"""
         
-        # Get all signals
-        all_signals = self.datastore.get_all_signals()
+        # Get all signals using SQL
+        with self.datastore.get_connection() as conn:
+            all_signals = self.datastore._fetch_query(conn, """
+                SELECT * FROM signals
+                ORDER BY created_at DESC
+            """)
         
         if not all_signals:
             return {

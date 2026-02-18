@@ -19,9 +19,10 @@ def clean_signals_database():
     print("SIGNAL DATABASE CLEANUP")
     print("=" * 60)
     
-    # Get current signal count
-    signals = datastore.get_all_signals()
-    count = len(signals) if signals else 0
+    # Get current signal count using direct SQL
+    with datastore.get_connection() as conn:
+        cursor = datastore._execute_query(conn, "SELECT COUNT(*) FROM signals")
+        count = cursor.fetchone()[0]
     
     print(f"\nCurrent signals in database: {count}")
     
@@ -53,8 +54,9 @@ def clean_signals_database():
         conn.commit()
     
     # Verify deletion
-    remaining = datastore.get_all_signals()
-    final_count = len(remaining) if remaining else 0
+    with datastore.get_connection() as conn:
+        cursor = datastore._execute_query(conn, "SELECT COUNT(*) FROM signals")
+        final_count = cursor.fetchone()[0]
     
     print(f"\n✅ Cleanup complete!")
     print(f"   Signals deleted: {count}")
