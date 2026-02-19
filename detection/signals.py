@@ -22,8 +22,10 @@ class MangoSignalDetector:
     
     def __init__(self, datastore):
         self.datastore = datastore
-        self.min_confidence_swing = settings.MIN_CONFIDENCE_SWING
-        self.min_confidence_scalp = settings.MIN_CONFIDENCE_SCALP
+        self.datastore = datastore
+        # Dynamic settings are now fetched at runtime
+        # self.min_confidence_swing = settings.MIN_CONFIDENCE_SWING
+        # self.min_confidence_scalp = settings.MIN_CONFIDENCE_SCALP
     
     def get_all_signals(self) -> List[Dict]:
         """Analyze all assets and return signals above confidence threshold"""
@@ -42,12 +44,14 @@ class MangoSignalDetector:
         for name, timeframes in assets_data.items():
             # Swing signals (HTF → LTF)
             swing_signal = self._detect_swing_signal(name, timeframes)
-            if swing_signal and swing_signal['confidence'] >= self.min_confidence_swing:
+            min_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING))
+            if swing_signal and swing_signal['confidence'] >= min_swing:
                 signals.append(swing_signal)
             
             # Scalp signals (scalp_htf → scalp_ltf)
             scalp_signal = self._detect_scalp_signal(name, timeframes)
-            if scalp_signal and scalp_signal['confidence'] >= self.min_confidence_scalp:
+            min_scalp = float(self.datastore.get_setting("MIN_CONFIDENCE_SCALP", settings.MIN_CONFIDENCE_SCALP))
+            if scalp_signal and scalp_signal['confidence'] >= min_scalp:
                 signals.append(scalp_signal)
         
         # Sort by confidence (highest first)
@@ -67,12 +71,14 @@ class MangoSignalDetector:
         
         # Analyze - Swing signals
         swing_signal = self._detect_swing_signal(asset_name, timeframes)
-        if swing_signal and swing_signal['confidence'] >= self.min_confidence_swing:
+        min_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING))
+        if swing_signal and swing_signal['confidence'] >= min_swing:
             signals.append(swing_signal)
         
         # Scalp signals
         scalp_signal = self._detect_scalp_signal(asset_name, timeframes)
-        if scalp_signal and scalp_signal['confidence'] >= self.min_confidence_scalp:
+        min_scalp = float(self.datastore.get_setting("MIN_CONFIDENCE_SCALP", settings.MIN_CONFIDENCE_SCALP))
+        if scalp_signal and scalp_signal['confidence'] >= min_scalp:
             signals.append(scalp_signal)
             
         return signals
