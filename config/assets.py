@@ -15,9 +15,10 @@ ASSETS = [
     {"symbol": "BYBIT:ADAUSDT.P", "name": "ADA", "type": "crypto", "precision": 4, "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "BYBIT:HYPEUSDT.P", "name": "HYPE", "type": "crypto", "precision": 4, "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     
-    # TradFi / Indices (7 assets) - Monday-Friday only
+    # TradFi / Indices (8 assets) - Monday-Friday only
     {"symbol": "OANDA:NAS100USD", "name": "NDX", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "OANDA:SPX500USD", "name": "SPX", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
+    {"symbol": "OANDA:US30USD", "name": "US30", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "OANDA:AU200AUD", "name": "AUS200", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "CAPITALCOM:DXY", "name": "DXY", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "OANDA:XAUUSD", "name": "GOLD", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},

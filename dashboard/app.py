@@ -252,6 +252,15 @@ def render_signal_history():
     try:
         history = datastore.get_signal_history(hours=hours)
         
+        # Fetch current prices for floating PnL
+        current_prices = {}
+        try:
+            latest_scrapes = datastore.get_latest_for_all_assets()
+            for scrape in latest_scrapes:
+                current_prices[scrape['name']] = scrape['close']
+        except Exception as e:
+            logger.error(f"Error fetching current prices: {e}")
+        
         if not history:
             st.info(f"No signals in the last {hours} hours")
             return
@@ -313,11 +322,17 @@ def render_signal_history():
 
         # 4. P&L %
         def calculate_pnl(row):
+            exit_price = None
+            
             if row['status'] == 'TP_HIT':
                 exit_price = row['take_profit']
             elif row['status'] == 'SL_HIT':
                 exit_price = row['stop_loss']
-            else:
+            elif row['status'] in ['ACTIVE', 'CREATED']:
+                # Calculate floating PnL
+                exit_price = current_prices.get(row['asset_name'])
+            
+            if exit_price is None:
                 return None
             
             try:
