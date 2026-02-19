@@ -109,6 +109,15 @@ class MangoDataStore:
                         FOREIGN KEY(signal_id) REFERENCES signals(id) ON DELETE CASCADE
                     )
                 """)
+                
+                # System Settings table (Postgres)
+                self._execute_query(conn, """
+                    CREATE TABLE IF NOT EXISTS system_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
 
             else:
                 # SQLite syntax (existing code)
