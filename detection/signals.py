@@ -322,7 +322,7 @@ class MangoSignalDetector:
         # Verify the zone has enough width to be a valid trend, not a squeeze/chop
         # Width is difference between Entry Up and Entry Down relative to Price
         zone_width_pct = abs(entry_up - entry_down) / price
-        min_width = 0.003  # 0.3% minimum width to avoid super flat chop
+        min_width = 0.002  # Relaxed from 0.003 to 0.002 (0.2%) to allow more trades
         
         if zone_width_pct < min_width:
              return {'valid': False, 'reason': f'Chop/Squeeze detected (Zone width {zone_width_pct*100:.2f}%)'}
@@ -337,10 +337,10 @@ class MangoSignalDetector:
         candle_body = abs(price - open_price)
         candle_range = high - low
         
-        # Require meaningful candle body (not doji) - relaxed to 40%
+        # Require meaningful candle body (not doji) - relaxed to 30%
         if candle_range > 0:
             body_ratio = candle_body / candle_range
-            if body_ratio < 0.4:  # Body must be at least 40% of range (relaxed from 50%)
+            if body_ratio < 0.3:  # Body must be at least 30% of range (relaxed from 40%)
                 return {'valid': False, 'reason': 'Doji/indecision candle (weak body)'}
         
         # 3. Momentum Confirmation (Close position) - Re-enabled for Quality
@@ -361,15 +361,15 @@ class MangoSignalDetector:
         zone_size = entry_up - entry_down
         
         if direction == 'LONG':
-            # For longs: Only enter in bottom 85% of zone (near support)
-            optimal_entry_top = entry_down + (zone_size * 0.85)
+            # For longs: Enter in bottom 90% of zone (avoid extreme top edge)
+            optimal_entry_top = entry_down + (zone_size * 0.90)
             if price > optimal_entry_top:
-                return {'valid': False, 'reason': f'Price too high in zone (want bottom 85%)'}
+                return {'valid': False, 'reason': f'Price too high in zone (want bottom 90%)'}
         else:
-            # For shorts: Only enter in top 85% of zone (near resistance)
-            optimal_entry_bottom = entry_up - (zone_size * 0.85)
+            # For shorts: Enter in top 90% of zone (avoid extreme bottom edge)
+            optimal_entry_bottom = entry_up - (zone_size * 0.90)
             if price < optimal_entry_bottom:
-                return {'valid': False, 'reason': f'Price too low in zone (want top 85%)'}
+                return {'valid': False, 'reason': f'Price too low in zone (want top 90%)'}
         
         # --- END PHASE 1 IMPROVEMENTS ---
 
@@ -470,7 +470,7 @@ class MangoSignalDetector:
             
         # Perfect Bounce Pattern Reward (Prop Firm Rule #2)
         if is_bounce:
-            confidence += 10
+            confidence += 15 # Increased bonus for bounce (was 10)
         
         # Cap at 100%
         return min(confidence, 100.0)
