@@ -6,6 +6,10 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Fix UnicodeEncodeError on Windows
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+
 # Load .env file BEFORE importing datastore
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -14,6 +18,8 @@ from detection.datastore import MangoDataStore
 from datetime import datetime, timedelta
 from collections import defaultdict
 import json
+import os
+import pytz
 
 class SignalAnalyzer:
     def __init__(self):
@@ -36,11 +42,21 @@ class SignalAnalyzer:
             }
         
         # Filter to recent signals
-        cutoff_time = datetime.now() - timedelta(hours=hours)
-        recent_signals = [
-            s for s in all_signals 
-            if datetime.fromisoformat(s['created_at']) > cutoff_time
-        ]
+        # created_at is UTC, so we must use utcnow() for comparison
+        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+        recent_signals = []
+        for s in all_signals:
+            # Handle potential timezone strings in DB
+            try:
+                sig_time = datetime.fromisoformat(s['created_at'].replace('Z', '+00:00'))
+                # Convert to naive UTC for comparison if needed
+                if sig_time.tzinfo is not None:
+                    sig_time = sig_time.astimezone(pytz.utc).replace(tzinfo=None)
+                
+                if sig_time > cutoff_time:
+                    recent_signals.append(s)
+            except Exception:
+                continue
         
         if not recent_signals:
             return {
@@ -75,9 +91,10 @@ class SignalAnalyzer:
             status_counts[s['status']] += 1
         
         # Win/Loss calculation (only for closed signals)
-        closed = [s for s in signals if s['status'] in ['hit_tp', 'hit_sl', 'closed']]
-        winners = [s for s in closed if s['status'] == 'hit_tp']
-        losers = [s for s in closed if s['status'] == 'hit_sl']
+        # DB uses: TP_HIT, SL_HIT, CLOSED (Upper case)
+        closed = [s for s in signals if s['status'] in ['TP_HIT', 'SL_HIT', 'CLOSED', 'hit_tp', 'hit_sl']]
+        winners = [s for s in closed if s['status'] in ['TP_HIT', 'hit_tp']]
+        losers = [s for s in closed if s['status'] in ['SL_HIT', 'hit_sl']]
         
         win_rate = (len(winners) / len(closed) * 100) if closed else 0
         
@@ -100,10 +117,10 @@ class SignalAnalyzer:
         return {
             'total_signals': total,
             'signals_per_hour': round(signals_per_hour, 2),
-            'active': status_counts.get('active', 0),
-            'hit_tp': status_counts.get('hit_tp', 0),
-            'hit_sl': status_counts.get('hit_sl', 0),
-            'closed': status_counts.get('closed', 0),
+            'active': status_counts.get('ACTIVE', 0) + status_counts.get('active', 0),
+            'hit_tp': status_counts.get('TP_HIT', 0) + status_counts.get('hit_tp', 0),
+            'hit_sl': status_counts.get('SL_HIT', 0) + status_counts.get('hit_sl', 0),
+            'closed': status_counts.get('CLOSED', 0) + status_counts.get('closed', 0),
             'win_rate_pct': round(win_rate, 1),
             'winners': len(winners),
             'losers': len(losers),
@@ -121,9 +138,9 @@ class SignalAnalyzer:
         for s in signals:
             signal_type = s['signal_type']
             by_type[signal_type]['count'] += 1
-            if s['status'] == 'hit_tp':
+            if s['status'] in ['TP_HIT', 'hit_tp']:
                 by_type[signal_type]['wins'] += 1
-            elif s['status'] == 'hit_sl':
+            elif s['status'] in ['SL_HIT', 'hit_sl']:
                 by_type[signal_type]['losses'] += 1
         
         # Calculate win rates
@@ -136,9 +153,9 @@ class SignalAnalyzer:
         for s in signals:
             ltf = s['ltf']
             by_ltf[ltf]['count'] += 1
-            if s['status'] == 'hit_tp':
+            if s['status'] in ['TP_HIT', 'hit_tp']:
                 by_ltf[ltf]['wins'] += 1
-            elif s['status'] == 'hit_sl':
+            elif s['status'] in ['SL_HIT', 'hit_sl']:
                 by_ltf[ltf]['losses'] += 1
         
         for tf in by_ltf:
@@ -164,21 +181,29 @@ class SignalAnalyzer:
         recommendations = []
         
         # 1. Frequency check
+        # 1. Frequency check
+        current_swing = float(os.getenv("MIN_CONFIDENCE_SWING", "68"))
+        current_scalp = float(os.getenv("MIN_CONFIDENCE_SCALP", "78"))
+        
         if metrics['signals_per_hour'] < 0.5:
+            new_swing = max(50, current_swing - 3)
+            new_scalp = max(60, current_scalp - 3)
             recommendations.append({
                 'priority': 'HIGH',
                 'category': 'Frequency',
                 'issue': f"Low signal frequency: {metrics['signals_per_hour']}/hour",
-                'action': 'Consider lowering confidence thresholds by 2-3 points',
-                'target': 'config/settings.py: MIN_CONFIDENCE_SWING, MIN_CONFIDENCE_SCALP'
+                'action': f"Lower confidence thresholds: Swing {current_swing}->{new_swing}, Scalp {current_scalp}->{new_scalp}",
+                'target': 'config/settings.py'
             })
         elif metrics['signals_per_hour'] > 3:
+            new_swing = min(95, current_swing + 3)
+            new_scalp = min(95, current_scalp + 3)
             recommendations.append({
                 'priority': 'MEDIUM',
                 'category': 'Frequency',
                 'issue': f"High signal frequency: {metrics['signals_per_hour']}/hour",
-                'action': 'Consider increasing confidence thresholds by 2-3 points',
-                'target': 'config/settings.py: MIN_CONFIDENCE_SWING, MIN_CONFIDENCE_SCALP'
+                'action': f"Increase confidence thresholds: Swing {current_swing}->{new_swing}, Scalp {current_scalp}->{new_scalp}",
+                'target': 'config/settings.py'
             })
         
         # 2. Win rate check (only if we have enough closed trades)
@@ -192,20 +217,22 @@ class SignalAnalyzer:
                     'action': 'Increase confidence thresholds by 5 points AND review stop loss calculation',
                     'target': 'config/settings.py + detection/signals.py (_calculate_tp_sl)'
                 })
-            elif metrics['win_rate_pct'] < 35:
+            elif metrics['win_rate_pct'] < 40: # Bumped for higher standard
+                new_val = min(90, current_swing + 4)
                 recommendations.append({
                     'priority': 'HIGH',
                     'category': 'Quality',
                     'issue': f"Low win rate: {metrics['win_rate_pct']}%",
-                    'action': 'Increase confidence thresholds by 3-5 points',
+                    'action': f"Increase confidence thresholds significantly (e.g. Swing {current_swing}->{new_val})",
                     'target': 'config/settings.py'
                 })
             elif metrics['win_rate_pct'] > 60:
+                new_val = max(50, current_swing - 2)
                 recommendations.append({
                     'priority': 'LOW',
                     'category': 'Quality',
                     'issue': f"High win rate: {metrics['win_rate_pct']}% (may be too selective)",
-                    'action': 'Consider lowering confidence by 2-3 points for more signals',
+                    'action': f"Consider lowering confidence slightly (e.g. Swing {current_swing}->{new_val}) for more signals",
                     'target': 'config/settings.py'
                 })
         else:

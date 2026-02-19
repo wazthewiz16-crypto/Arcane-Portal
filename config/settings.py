@@ -22,8 +22,8 @@ HEADLESS_BROWSER = os.getenv("HEADLESS_BROWSER", "true").lower() == "true"
 TV_STATE_FILE = PROJECT_ROOT / "tv_state.json"
 
 # Signal Confidence Thresholds (Balanced Approach: Higher quality to offset increased frequency)
-MIN_CONFIDENCE_SWING = float(os.getenv("MIN_CONFIDENCE_SWING", "68"))  # Was 65
-MIN_CONFIDENCE_SCALP = float(os.getenv("MIN_CONFIDENCE_SCALP", "78"))  # Was 75
+MIN_CONFIDENCE_SWING = float(os.getenv("MIN_CONFIDENCE_SWING", "72"))  # Was 68
+MIN_CONFIDENCE_SCALP = float(os.getenv("MIN_CONFIDENCE_SCALP", "75"))  # Was 78
 
 # Streamlit Configuration
 STREAMLIT_SERVER_PORT = int(os.getenv("STREAMLIT_SERVER_PORT", "8501"))
