@@ -192,6 +192,40 @@ class MangoDataStore:
                         FOREIGN KEY(signal_id) REFERENCES signals(id) ON DELETE CASCADE
                     )
                 """)
+                
+                # System Settings table (SQLite)
+                self._execute_query(conn, """
+                    CREATE TABLE IF NOT EXISTS system_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+
+    def get_setting(self, key, default_value=None):
+        """Get a system setting value"""
+        with self.get_connection() as conn:
+            cursor = self._execute_query(conn, "SELECT value FROM system_settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            if row:
+                return row[0] if isinstance(row, tuple) else row['value']
+            return default_value
+
+    def set_setting(self, key, value):
+        """Set a system setting value"""
+        from datetime import datetime
+        with self.get_connection() as conn:
+            if USE_POSTGRES:
+                self._execute_query(conn, """
+                    INSERT INTO system_settings (key, value, updated_at)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+                """, (key, str(value), datetime.utcnow().isoformat()))
+            else:
+                self._execute_query(conn, """
+                    INSERT OR REPLACE INTO system_settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                """, (key, str(value), datetime.utcnow().isoformat()))
     
     @contextmanager
     def get_connection(self):
