@@ -388,15 +388,19 @@ class TradingViewScraper:
 
                 print(f"\nProcessing {idx}/{total}: {asset['name']} ({len(tfs)} TFs)...")
 
-                for timeframe in tfs:
-                    # Use existing scrape_asset method
-                    try:
-                        data = await self.scrape_asset(context, asset, timeframe)
-                        if data:
-                            asset_results.append(data)
-                            self._print_timeframe_data(timeframe, data, asset)
-                    except Exception as e:
-                        logger.error(f"Error streaming asset {asset['name']}: {e}")
+                # Parallelize timeframe scraping for this asset
+                # Create tasks for all timeframes
+                tasks = [self.scrape_asset(context, asset, timeframe) for timeframe in tfs]
+                
+                # Execute all timeframes concurrently
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for res in results:
+                    if isinstance(res, Exception):
+                        logger.error(f"Error scraping timeframe: {res}")
+                    elif res:
+                        asset_results.append(res)
+                        self._print_timeframe_data(res['timeframe'], res, asset)
                 
                 if asset_results:
                     yield asset_results

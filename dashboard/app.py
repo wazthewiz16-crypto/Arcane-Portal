@@ -15,6 +15,22 @@ from detection.signals import MangoSignalDetector
 from config.assets import get_active_assets
 from utils.logger import setup_logger
 
+# Cached Data Functions
+@st.cache_data(ttl=60)
+def get_cached_active_signals():
+    ds = MangoDataStore()
+    return ds.get_active_signals()
+
+@st.cache_data(ttl=300)
+def get_cached_history(hours):
+    ds = MangoDataStore()
+    return ds.get_signal_history(hours=hours)
+
+@st.cache_data(ttl=60)
+def get_cached_latest_assets():
+    ds = MangoDataStore()
+    return ds.get_latest_for_all_assets()
+
 # Setup logging
 logger = setup_logger(__name__)
 
@@ -108,7 +124,7 @@ def render_active_signals():
     # detector = MangoSignalDetector(datastore) # Not needed for viewing
     
     try:
-        signals = datastore.get_active_signals()
+        signals = get_cached_active_signals()
         
         if not signals:
             st.info("No active signals at the moment. Waiting for setups...")
@@ -250,12 +266,12 @@ def render_signal_history():
     datastore = MangoDataStore()
     
     try:
-        history = datastore.get_signal_history(hours=hours)
+        history = get_cached_history(hours)
         
         # Fetch current prices for floating PnL
         current_prices = {}
         try:
-            latest_scrapes = datastore.get_latest_for_all_assets()
+            latest_scrapes = get_cached_latest_assets()
             for scrape in latest_scrapes:
                 current_prices[scrape['name']] = scrape['close']
         except Exception as e:
@@ -419,7 +435,7 @@ def render_asset_monitor(datastore=None):
     assets = get_active_assets()
     
     try:
-        latest_data = datastore.get_latest_for_all_assets()
+        latest_data = get_cached_latest_assets()
         
         # Group by asset with smart timeframe selection
         asset_data = {}
