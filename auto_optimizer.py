@@ -35,15 +35,35 @@ class AutoOptimizer:
         logger.info(f"Running optimization for last {hours} hours...")
         
         # 1. Get Analysis
+        # Try primary timeframe, then fallback if not enough data
         analysis = self.analyzer.analyze_recent_signals(hours)
         if 'error' in analysis:
             logger.warning(f"Analysis failed: {analysis['error']}")
             return
-        
+            
         metrics = analysis['metrics']
+        total_closed = metrics['winners'] + metrics['losers']
         
+        # Fallback to 48 hours if not enough data in 24 hours
+        if total_closed < 5 and hours < 48:
+            logger.info(f"Not enough closed trades ({total_closed}) in {hours}h. Expanding to 48h...")
+            analysis_48 = self.analyzer.analyze_recent_signals(48)
+            
+            if 'error' not in analysis_48:
+                metrics_48 = analysis_48['metrics']
+                total_closed_48 = metrics_48['winners'] + metrics_48['losers']
+                
+                # Only switch if 48h actually gives us more data to work with
+                if total_closed_48 >= 5:
+                    logger.info(f"Using 48h data: {total_closed_48} closed trades found.")
+                    analysis = analysis_48
+                    metrics = metrics_48
+                    hours = 48 # Update hour tracking for logs
+                else:
+                    logger.info(f"Still not enough data in 48h ({total_closed_48} closed). Reverting to {hours}h.")
+
         # Log current metrics
-        logger.info(f"Metrics: WR={metrics['win_rate_pct']}%, Signals={metrics['total_signals']}, Freq={metrics['signals_per_hour']}/hr")
+        logger.info(f"Metrics ({hours}h): WR={metrics['win_rate_pct']}%, Signals={metrics['total_signals']}, Freq={metrics['signals_per_hour']}/hr")
         
         # 2. Get Current Settings (from DB or default)
         current_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING))
