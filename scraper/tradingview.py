@@ -389,8 +389,15 @@ class TradingViewScraper:
                 print(f"\nProcessing {idx}/{total}: {asset['name']} ({len(tfs)} TFs)...")
 
                 # Parallelize timeframe scraping for this asset
+                # Limit concurrency to 2 tabs to manage RAM usage (Cost optimization)
+                semaphore = asyncio.Semaphore(2)
+                
+                async def scrape_with_limit(tf):
+                    async with semaphore:
+                        return await self.scrape_asset(context, asset, tf)
+
                 # Create tasks for all timeframes
-                tasks = [self.scrape_asset(context, asset, timeframe) for timeframe in tfs]
+                tasks = [scrape_with_limit(timeframe) for timeframe in tfs]
                 
                 # Execute all timeframes concurrently
                 results = await asyncio.gather(*tasks, return_exceptions=True)
