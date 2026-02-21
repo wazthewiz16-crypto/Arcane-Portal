@@ -141,7 +141,8 @@ class MangoSignalDetector:
                 entry_zone_high=ltf_data['entry_up'],
                 candle_low=ltf_data['low'],
                 candle_high=ltf_data['high'],
-                timeframe=htf_data['timeframe']
+                timeframe=htf_data['timeframe'],
+                asset_type=self._get_asset_type(name)
             )
             
             if not tp_sl:
@@ -243,7 +244,8 @@ class MangoSignalDetector:
                 candle_low=ltf_data['low'],
                 candle_high=ltf_data['high'],
                 timeframe=ltf_data['timeframe'],
-                is_scalp=True
+                is_scalp=True,
+                asset_type=self._get_asset_type(name)
             )
             
             if not tp_sl:
@@ -484,7 +486,8 @@ class MangoSignalDetector:
         candle_low: float,
         candle_high: float,
         timeframe: str,
-        is_scalp: bool = False
+        is_scalp: bool = False,
+        asset_type: str = 'crypto'
     ) -> Optional[Dict]:
         """
         Calculate Take Profit and Stop Loss levels
@@ -500,22 +503,31 @@ class MangoSignalDetector:
         """
         
         # Small buffer beyond Mango Dynamic boundaries
-        # This is MUCH wider than previous 0.5%/0.3% fixed buffers
-        buffer_pct = 0.005  # 0.5% beyond the zone boundary
+        # Increased buffer to handle wider crypto market wicks
+        buffer_pct = 0.008 if is_scalp else 0.015
+        
+        # Define a minimum SL distance to avoid micro-wicks stopping us out instantly
+        if is_scalp:
+            MIN_RISK_PCT = 0.015
+        else:
+            if asset_type == 'tradfi':
+                MIN_RISK_PCT = 0.020  # 2% SL for tradfi swings
+            else:
+                MIN_RISK_PCT = 0.033  # 3.3% SL for crypto swings
         
         # Determine RR ratio based on timeframe
         if is_scalp:
             # Scalp timeframes (3m, 5m, 15m)
             if timeframe in ['3m', '5m']:
-                rr_ratio = 1.5  # Tighter for very short timeframes
+                rr_ratio = 1.2  # Softened from 1.5
             else:  # 15m
-                rr_ratio = 2.0  # Standard scalp
+                rr_ratio = 1.6  # Softened from 2.0
         else:
             # Swing timeframes (4h, 1d, 12h, 4d)
             if timeframe in ['4h', '12h']:
-                rr_ratio = 2.5  # Mid-range swings
+                rr_ratio = 2.3  # Bumped from 2.0
             else:  # 1d, 4d
-                rr_ratio = 3.0  # Longer-term swings get higher RR
+                rr_ratio = 2.7  # Bumped from 2.5
         
         if direction == 'LONG':
             # OPTION B: Use Mango Dynamic Lower Boundary (entry_down) as natural stop
@@ -523,6 +535,11 @@ class MangoSignalDetector:
             # For Longs: SL below the support zone
             stop_loss = entry_zone_low * (1 - buffer_pct)
             
+            # Enforce minimum risk width
+            min_sl_price = entry_price * (1 - MIN_RISK_PCT)
+            if stop_loss > min_sl_price:
+                stop_loss = min_sl_price
+                
             risk = entry_price - stop_loss
             
             # Invalid if Price <= SL (shouldn't happen with proper entries)
@@ -538,6 +555,11 @@ class MangoSignalDetector:
             # For Shorts: SL above the resistance zone
             stop_loss = entry_zone_high * (1 + buffer_pct)
             
+            # Enforce minimum risk width
+            min_sl_price = entry_price * (1 + MIN_RISK_PCT)
+            if stop_loss < min_sl_price:
+                stop_loss = min_sl_price
+                
             risk = stop_loss - entry_price
 
             # Invalid if Price >= SL

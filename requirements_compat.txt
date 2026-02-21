@@ -1,0 +1,19 @@
+# Core Dependencies
+playwright
+streamlit
+pandas
+python-dotenv
+pytz
+
+# Database
+sqlalchemy
+psycopg2-binary
+
+# HTTP Requests
+requests
+
+# Async Support
+asyncio
+
+# Logging
+colorlog

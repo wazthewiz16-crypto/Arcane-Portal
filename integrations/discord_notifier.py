@@ -197,6 +197,32 @@ class DiscordNotifier:
         except Exception:
             return iso_string
     
+    def send_message(self, message: str) -> bool:
+        """
+        Send a general message to Discord
+        
+        Args:
+            message: Formatted text message
+            
+        Returns:
+            True if sent successfully
+        """
+        if not self.webhook_url:
+            return False
+        
+        try:
+            response = requests.post(
+                self.webhook_url,
+                json={"content": message},
+                timeout=10
+            )
+            
+            return response.status_code in [200, 204]
+            
+        except Exception as e:
+            logger.error(f"Failed to send message: {e}")
+            return False
+
     def send_test_alert(self) -> bool:
         """Send a test alert to verify webhook is working"""
         test_signal = {

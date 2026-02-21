@@ -138,7 +138,7 @@ class AutoOptimizer:
             name = k.replace("MIN_CONFIDENCE_", "").title()
             msg += f"• **{name} Confidence**: Set to **{v}**\n"
             
-        notifier._send_webhook(msg)
+        notifier.send_message(msg)
 
 if __name__ == "__main__":
     optimizer = AutoOptimizer()

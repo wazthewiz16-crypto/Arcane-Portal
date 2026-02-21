@@ -365,10 +365,18 @@ def render_signal_history():
         # Clean up Confidence
         df['confidence'] = df['confidence'].round(0).astype(int)
         
+        # Format Timeframe
+        def format_tf(row):
+            htf = row.get('htf', '-')
+            ltf = row.get('ltf', '-')
+            return f"{htf} → {ltf}"
+            
+        df['TF'] = df.apply(format_tf, axis=1)
+        
         # Select columns for display
         # Map raw column names to display names if needed, or just create new DF
         display_columns = [
-            'Time', 'asset_name', 'signal_type', 'confidence',
+            'Time', 'asset_name', 'signal_type', 'TF', 'confidence',
             'entry_price', 'take_profit', 'stop_loss', 'status', 
             'Exit Time', 'Duration', 'PnL %'
         ]
@@ -379,7 +387,7 @@ def render_signal_history():
         
         # Rename for cleaner UI
         display_df.columns = [
-            'Entry Time', 'Asset', 'Type', 'Conf', 
+            'Entry Time', 'Asset', 'Type', 'TF', 'Conf', 
             'Entry', 'TP', 'SL', 'Status', 
             'Exit Time', 'Duration', 'PnL %'
         ]
