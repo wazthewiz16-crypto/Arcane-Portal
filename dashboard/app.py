@@ -545,19 +545,27 @@ def render_system_health():
         datastore = MangoDataStore()
         
         try:
+            import pytz
             # Check database
             latest = datastore.get_latest_for_all_assets()
             if latest:
                 last_scrape = latest[0]['timestamp']
                 last_scrape_dt = datetime.fromisoformat(last_scrape.replace('Z', '+00:00'))
-                time_since = datetime.now() - last_scrape_dt.replace(tzinfo=None)
+                
+                # Make timezone aware if it isn't
+                if last_scrape_dt.tzinfo is None:
+                    last_scrape_dt = pytz.utc.localize(last_scrape_dt)
+                    
+                time_since = datetime.now(pytz.utc) - last_scrape_dt
+                
+                total_minutes = int(time_since.total_seconds() // 60)
                 
                 if time_since.total_seconds() < 1800:  # 30 minutes
                     st.success("✅ Scraper Active")
                 else:
                     st.warning("⚠️ Scraper Delayed")
                 
-                st.caption(f"Last scrape: {time_since.seconds // 60}m ago")
+                st.caption(f"Last scrape: {total_minutes}m ago")
             else:
                 st.error("❌ No data")
             
