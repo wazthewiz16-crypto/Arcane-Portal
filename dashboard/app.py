@@ -592,7 +592,7 @@ def render_dynamic_levels(datastore):
     cols = st.columns(2)
     
     # Scraped timeframes (excluding 5m as it's not scraped)
-    timeframes = ['3m', '15m', '1h', '4h', '12h', '1d', '4d']
+    timeframes = ['15m', '1h', '4h', '12h', '1d', '4d']
     
     for i, asset in enumerate(assets):
         with cols[i % 2]:
