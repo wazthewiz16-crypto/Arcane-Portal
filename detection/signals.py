@@ -113,6 +113,15 @@ class MangoSignalDetector:
             if not htf_direction or htf_direction == 'NEUTRAL':
                 continue  # Skip neutral trends (price inside Mango Dynamic)
             
+            # --- Grandmaster Filter (Daily Trend Check) ---
+            # Swing must align with Daily trend to avoid counter-trend traps
+            daily_data = timeframes.get('1d')
+            if daily_data:
+                daily_dir = self._get_htf_direction(daily_data)
+                if daily_dir != htf_direction:
+                    continue
+            # ---------------------------------------------
+
             # --- Swing Trend Alignment Check ---
             # Don't trade against the LTF trend (e.g. Don't Short if 4H is Bullish)
             ltf_direction = self._get_htf_direction(ltf_data)
@@ -283,27 +292,31 @@ class MangoSignalDetector:
             if 'Bearish' in scraped_trend: return 'SHORT'
             if 'Neutral' in scraped_trend: return 'NEUTRAL'
 
-        # 2. Fallback to Calculation
+        # 2. Fallback to Calculation using D1/D2 ribbon structure
         price = htf_data.get('close')
         mango_d1 = htf_data.get('mango_d1')
         mango_d2 = htf_data.get('mango_d2')
+        entry_up = htf_data.get('entry_up')
+        entry_down = htf_data.get('entry_down')
         
         if not (price and mango_d1 and mango_d2):
             return None
         
-        # Bullish: Price above Mango D2
-        if price > mango_d2:
-            return 'LONG'
+        # The Mango Dynamic ribbon direction is determined by which band is on top:
+        # Bullish ribbon: D1 > D2 (D1 is the upper band, price is being supported)
+        # Bearish ribbon: D2 > D1 (D2 is the upper band, price is being pressured down)
+        is_bullish_ribbon = mango_d1 > mango_d2
         
-        # Bearish: Price below Mango D1
-        if price < mango_d1:
-            return 'SHORT'
+        if is_bullish_ribbon:
+            # Bullish trend: price above or within the support zone
+            if entry_down and price >= entry_down:
+                return 'LONG'
+        else:
+            # Bearish trend: price below or within the resistance zone
+            if entry_up and price <= entry_up:
+                return 'SHORT'
         
-        # Neutral: Price between D1 and D2 (inside Mango Dynamic)
-        if mango_d1 <= price <= mango_d2:
-            return 'NEUTRAL'
-        
-        return None
+        return 'NEUTRAL'
     
     def _check_ltf_entry(self, ltf_data: Dict, direction: str) -> Dict:
         """
