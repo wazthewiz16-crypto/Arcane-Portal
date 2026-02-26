@@ -74,6 +74,11 @@ class AutoOptimizer:
         updates = {}
         
         # 3. Apply Decision Logic (Iterative Improvement)
+        # HARD CAPS - confidence formula rarely exceeds 92, so caps must be reasonable
+        MAX_SWING = 85  # Hard ceiling for swing threshold
+        MAX_SCALP = 88  # Hard ceiling for scalp threshold
+        MIN_SWING = 60  # Hard floor for swing threshold
+        MIN_SCALP = 65  # Hard floor for scalp threshold
         
         # A. Win Rate Logic (Quality Control)
         # -----------------------------------
@@ -81,37 +86,37 @@ class AutoOptimizer:
         win_rate = metrics['win_rate_pct']
         
         if total_closed >= 5: # Need minimal sample size
-            if win_rate < 30:
-                logger.info("CRITICAL: Win rate < 30%. Increasing thresholds aggressively.")
-                updates['MIN_CONFIDENCE_SWING'] = min(95, current_swing + 4)
-                updates['MIN_CONFIDENCE_SCALP'] = min(95, current_scalp + 4)
+            if win_rate < 25:
+                logger.info("CRITICAL: Win rate < 25%. Increasing thresholds moderately.")
+                updates['MIN_CONFIDENCE_SWING'] = min(MAX_SWING, current_swing + 2)
+                updates['MIN_CONFIDENCE_SCALP'] = min(MAX_SCALP, current_scalp + 2)
                 
-            elif win_rate < 45:
-                logger.info("WARNING: Win rate < 45%. Increasing thresholds moderately.")
-                updates['MIN_CONFIDENCE_SWING'] = min(90, current_swing + 2)
-                updates['MIN_CONFIDENCE_SCALP'] = min(90, current_scalp + 2)
+            elif win_rate < 40:
+                logger.info("WARNING: Win rate < 40%. Increasing thresholds slightly.")
+                updates['MIN_CONFIDENCE_SWING'] = min(MAX_SWING, current_swing + 1)
+                updates['MIN_CONFIDENCE_SCALP'] = min(MAX_SCALP, current_scalp + 1)
                 
-            elif win_rate > 75 and metrics['signals_per_hour'] < 0.2:
-                logger.info("EXCELLENT: Win rate > 75% but low volume. Lowering thresholds slightly to capture more.")
-                updates['MIN_CONFIDENCE_SWING'] = max(50, current_swing - 2)
-                updates['MIN_CONFIDENCE_SCALP'] = max(60, current_scalp - 2)
+            elif win_rate > 60 and metrics['signals_per_hour'] < 0.5:
+                logger.info("GOOD: Win rate > 60% but low volume. Lowering thresholds to capture more.")
+                updates['MIN_CONFIDENCE_SWING'] = max(MIN_SWING, current_swing - 2)
+                updates['MIN_CONFIDENCE_SCALP'] = max(MIN_SCALP, current_scalp - 2)
         else:
             logger.info(f"Not enough closed trades ({total_closed}) to adjust based on Win Rate.")
 
-        # B. Frequency Logic (Volume Control) -- Only if Win Rate didn't trigger
+        # B. Frequency Safety Valve -- Prevent system from choking itself
+        # Even if win rate is poor, if we're generating almost NO signals,
+        # thresholds are clearly too high and must come down.
         # -----------------------------------
         if not updates:
             if metrics['signals_per_hour'] > 3.0:
                 logger.info("Frequency too high (>3/hr). Increasing thresholds.")
-                updates['MIN_CONFIDENCE_SWING'] = min(95, current_swing + 2)
-                updates['MIN_CONFIDENCE_SCALP'] = min(95, current_scalp + 2)
+                updates['MIN_CONFIDENCE_SWING'] = min(MAX_SWING, current_swing + 2)
+                updates['MIN_CONFIDENCE_SCALP'] = min(MAX_SCALP, current_scalp + 2)
                 
-            elif metrics['signals_per_hour'] < 0.2:
-                 # Only reduce if we haven't lost money recently (Safety Check)
-                 if metrics['win_rate_pct'] >= 50 or total_closed == 0:
-                     logger.info("Frequency too low (<0.2/hr). Decreasing thresholds.")
-                     updates['MIN_CONFIDENCE_SWING'] = max(50, current_swing - 2)
-                     updates['MIN_CONFIDENCE_SCALP'] = max(60, current_scalp - 2)
+            elif metrics['signals_per_hour'] < 0.3:
+                logger.info("Frequency critically low (<0.3/hr). Decreasing thresholds (safety valve).")
+                updates['MIN_CONFIDENCE_SWING'] = max(MIN_SWING, current_swing - 3)
+                updates['MIN_CONFIDENCE_SCALP'] = max(MIN_SCALP, current_scalp - 3)
         
         # 4. Apply Updates
         if updates:

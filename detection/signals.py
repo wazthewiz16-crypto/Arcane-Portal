@@ -114,11 +114,12 @@ class MangoSignalDetector:
                 continue  # Skip neutral trends (price inside Mango Dynamic)
             
             # --- Grandmaster Filter (Daily Trend Check) ---
-            # Swing must align with Daily trend to avoid counter-trend traps
+            # Swing must not fight the Daily trend. NEUTRAL daily is OK.
             daily_data = timeframes.get('1d')
             if daily_data:
                 daily_dir = self._get_htf_direction(daily_data)
-                if daily_dir != htf_direction:
+                # Only reject if Daily is explicitly OPPOSITE (not just neutral)
+                if daily_dir and daily_dir != 'NEUTRAL' and daily_dir != htf_direction:
                     continue
             # ---------------------------------------------
 
@@ -352,23 +353,23 @@ class MangoSignalDetector:
         candle_body = abs(price - open_price)
         candle_range = high - low
         
-        # Require meaningful candle body (not doji) - relaxed to 30%
+        # Require meaningful candle body (not pure doji) - relaxed to 15%
+        # This allows hammer/pin-bar entries which are high-quality reversal signals
         if candle_range > 0:
             body_ratio = candle_body / candle_range
-            if body_ratio < 0.3:  # Body must be at least 30% of range (relaxed from 40%)
+            if body_ratio < 0.15:  # Body must be at least 15% of range
                 return {'valid': False, 'reason': 'Doji/indecision candle (weak body)'}
         
-        # 3. Momentum Confirmation (Close position) - Re-enabled for Quality
-        # For LONG: Close should be in upper half of candle (strong close)
-        # For SHORT: Close should be in lower half of candle (weak close)
+        # 3. Momentum Confirmation (Close position) - Softened for volume
+        # Only reject truly weak closes (bottom/top 35% of candle)
         if candle_range > 0:
             close_position = (price - low) / candle_range
             
-            if direction == 'LONG' and close_position < 0.5:
-                return {'valid': False, 'reason': 'Weak close for long (not in upper half)'}
+            if direction == 'LONG' and close_position < 0.35:
+                return {'valid': False, 'reason': 'Weak close for long (bottom 35%)'}
                 
-            if direction == 'SHORT' and close_position > 0.5:
-                return {'valid': False, 'reason': 'Weak close for short (not in lower half)'}
+            if direction == 'SHORT' and close_position > 0.65:
+                return {'valid': False, 'reason': 'Weak close for short (top 65%)'}
 
         # 4. Optimal Entry Zone Filter (Bottom 85% for longs, Top 85% for shorts)
         # Re-enabled at 85% (Very Permissive) to avoid entering at the very worst edge of the zone.
