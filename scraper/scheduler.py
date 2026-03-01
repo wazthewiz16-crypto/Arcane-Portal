@@ -33,14 +33,18 @@ class TimeframeScheduler:
         # 3m: Scrape removed as per optimization request
         # timeframes_to_scrape.append('3m')
         
-        # 15m: Scrape every time the worker runs
+        # 15m: Scrape every time the worker runs (for scalps)
         timeframes_to_scrape.append('15m')
         
-        # 1h: Scrape every time (Live updates)
-        timeframes_to_scrape.append('1h')
+        # 1h: Scrape twice per hour (e.g., first 15 mins, and around the 30-min mark)
+        # Drops 1h scraping costs by 50%
+        if now.minute < 15 or (25 <= now.minute < 45):
+            timeframes_to_scrape.append('1h')
         
-        # 4h: Scrape every time (Live updates)
-        timeframes_to_scrape.append('4h')
+        # 4h: Scrape once per hour (first 15 minutes of any hour)
+        # Drops 4h scraping costs by 75%
+        if now.minute < 15:
+            timeframes_to_scrape.append('4h')
 
         # 1d: Twice daily at 00:00 UTC and 12:00 UTC (with 35m window)
         # Covers daily close (00:00) and mid-day check (12:00)
