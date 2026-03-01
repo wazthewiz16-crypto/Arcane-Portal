@@ -181,11 +181,8 @@ class MangoSignalDetector:
                 candle_high=ltf_data['high'],
                 timeframe=ltf_tf,
                 is_scalp=False,
-                asset_type=asset_type,
+                asset_type=self._get_asset_type(name),
                 buffer_pct=sl_buffer
-            )
-                timeframe=htf_data['timeframe'],
-                asset_type=self._get_asset_type(name)
             )
             
             if not tp_sl:
@@ -287,14 +284,8 @@ class MangoSignalDetector:
                 candle_high=ltf_data['high'],
                 timeframe=ltf_tf,
                 is_scalp=True,
-                asset_type=asset_type,
+                asset_type=self._get_asset_type(name),
                 buffer_pct=sl_buffer
-            )
-                candle_low=ltf_data['low'],
-                candle_high=ltf_data['high'],
-                timeframe=ltf_data['timeframe'],
-                is_scalp=True,
-                asset_type=self._get_asset_type(name)
             )
             
             if not tp_sl:
