@@ -94,11 +94,11 @@ class MangoSignalDetector:
         - Uses 4h → 1h or 1d → 4h combinations
         """
         # Try different HTF/LTF combinations for swing trading
-        # Try different HTF/LTF combinations for swing trading
         combinations = [
             ('4d', '1d'),   # Weekly/Daily swing
             ('1d', '4h'),   # Daily/4H swing
-            ('12h', '1h'),  # 12H/1H swing
+            ('4h', '1h'),   # 4H/1H swing (tighter, more reactive)
+            ('12h', '1h'),  # 12H/1H swing (slower, use as last resort)
         ]
         
         for htf_tf, ltf_tf in combinations:
@@ -136,6 +136,21 @@ class MangoSignalDetector:
             ltf_entry = self._check_ltf_entry(ltf_data, htf_direction)
             if not ltf_entry['valid']:
                 continue
+
+            # --- Late Entry / Chase Filter ---
+            # Reject if price has already moved far past the entry zone in signal direction.
+            # This happens when the HTF ribbon lags and the move is already exhausted.
+            ltf_price = ltf_data.get('close', 0)
+            ltf_entry_up = ltf_data.get('entry_up', 0)
+            ltf_entry_down = ltf_data.get('entry_down', 0)
+            zone_width = ltf_entry_up - ltf_entry_down
+            chase_buffer = max(zone_width * 1.5, ltf_price * 0.015)  # 1.5x zone or 1.5% price
+
+            if htf_direction == 'LONG' and ltf_price > ltf_entry_up + chase_buffer:
+                continue  # Price has already run far above resistance — too late
+            if htf_direction == 'SHORT' and ltf_price < ltf_entry_down - chase_buffer:
+                continue  # Price has already dumped far below support — too late
+            # ---------------------------------
             
             # Calculate confidence
             confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=True, is_bounce=ltf_entry.get('is_bounce', False))
