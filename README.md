@@ -176,7 +176,7 @@ Arcane-Portal/
 ## Support
 
 **Latest Update:** 2026-02-28
-- **Critical Bug Fix**: Scraper was silently storing corrupt `close=1.0` placeholder values into the 1D database table, corrupting the Grandmaster Filter and breaking the 4D→1D swing chain. Fixed and 335 corrupted rows purged.
+- **Critical Bug Fix**: Scraper was silently storing corrupt `close=1.0` placeholder values into the 1D database table because it didn't wait long enough for the HTF indicators to render. Increased 1D/4D load wait time to 12-15s and retries to 5. Corrupted rows purged.
 - **Self-Healing**: Auto-optimizer now evaluating swings vs scalps independently + safety valve.
 - **Improved Entries**: Integrated "Chase Filter" to reject late setups when HTF ribbon lags.
 - **Tighter Swings**: Added 4H→1H swing combination to catch market reversals faster.
