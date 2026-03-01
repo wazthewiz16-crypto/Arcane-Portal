@@ -93,9 +93,10 @@ Dashboard will be available at: **http://localhost:8501**
 - 12H HTF → 1H LTF *(Slower fallback)*
 
 **LTF Scalps** (Quick trades):
-- 4H HTF → 15m LTF
-- 1H HTF → 5m LTF
-- 30m HTF → 3m LTF
+- 4H HTF → 15m LTF  *(Primary combo)*
+- 1H HTF → 15m LTF  *(Tighter confirmation)*
+
+> **Active scraped timeframes:** `15m`, `1h`, `4h`, `12h`, `4d` — signals only use what the scraper actually provides.
 
 ### Entry Conditions (Balanced Approach)
 1. **Trend Alignment**: LTF price must align with HTF trend.
@@ -175,9 +176,10 @@ Arcane-Portal/
 ## Support
 
 **Latest Update:** 2026-02-28
+- **Critical Bug Fix**: Scraper was silently storing corrupt `close=1.0` placeholder values into the 1D database table, corrupting the Grandmaster Filter and breaking the 4D→1D swing chain. Fixed and 335 corrupted rows purged.
 - **Self-Healing**: Auto-optimizer now evaluating swings vs scalps independently + safety valve.
 - **Improved Entries**: Integrated "Chase Filter" to reject late setups when HTF ribbon lags.
-- **Tighter Swings**: Added 4H->1H swing combination to catch market reversals faster.
-- **Relaxed Filters**: Expanded body ratio and momentum close logic to increase viable trade volume.
+- **Tighter Swings**: Added 4H→1H swing combination to catch market reversals faster.
+- **Cleanup**: Removed dead scalp combos (5m, 30m) that were never being scraped.
 
 **Built with:** Python • Streamlit • Playwright • PostgreSQL • Discord • Numpy/Pandas

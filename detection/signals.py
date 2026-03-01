@@ -202,10 +202,10 @@ class MangoSignalDetector:
         - Uses 1h → 15m or 4h → 1h combinations
         """
         # Try different HTF/LTF combinations for scalp trading
+        # Only timeframes actively scraped by the scheduler: 15m, 1h, 4h, 12h, 4d
         combinations = [
-            ('4h', '15m'),  # 4H/15m scalp
-            ('1h', '5m'),   # 1H/5m scalp
-            ('30m', '3m'),  # 30m/3m scalp
+            ('4h', '15m'),  # 4H/15m scalp — primary scalp combo
+            ('1h', '15m'),  # 1H/15m scalp — tighter confirmation
         ]
         
         for htf_tf, ltf_tf in combinations:
