@@ -176,6 +176,7 @@ Arcane-Portal/
 ## Support
 
 **Latest Update:** 2026-02-28
+- **Railway Cost Optimization**: Restructured the TimeframeScheduler to drop redundant scrapes. 1H and 4H charts no longer scrape on every cron run, reducing hourly browser load/compute time by ~45% and saving significant Railway credits.
 - **Critical Bug Fix**: Scraper was silently storing corrupt `close=1.0` placeholder values into the 1D database table because it didn't wait long enough for the HTF indicators to render. Increased 1D/4D load wait time to 12-15s and retries to 5. Corrupted rows purged.
 - **Self-Healing**: Auto-optimizer now evaluating swings vs scalps independently + safety valve.
 - **Improved Entries**: Integrated "Chase Filter" to reject late setups when HTF ribbon lags.
