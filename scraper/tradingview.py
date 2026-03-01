@@ -113,7 +113,14 @@ class TradingViewScraper:
             await page.keyboard.press("Alt+R")
             
             # Wait for timeframe to load
-            wait_time = 5 if timeframe in ['1d', '4d'] else 3
+            # Daily and 4-day charts take significantly longer for the Mango Dynamic
+            # indicator to fully render all its values — previous 5s was too short.
+            if timeframe in ['4d']:
+                wait_time = 15
+            elif timeframe in ['1d', '12h']:
+                wait_time = 12
+            else:
+                wait_time = 4
             await asyncio.sleep(wait_time)
             
             # Hide floating toolbars and favorites bar (user request)
@@ -140,8 +147,8 @@ class TradingViewScraper:
                 logger.warning(f"Failed to save screenshot for {name} {timeframe}: {e}")
             
             # Hover current candle with retries
-            # Increased retries to 3 for ALL timeframes
-            max_retries = 3
+            # More retries for slower HTF timeframes
+            max_retries = 5 if timeframe in ['1d', '4d', '12h'] else 3
             data = None
             
             for attempt in range(max_retries):
@@ -212,7 +219,7 @@ class TradingViewScraper:
                     break
                 elif attempt < max_retries - 1:
                     logger.warning(f"⚠️  {name} [{timeframe}] attempt {attempt + 1}: Invalid price ${close_price}, retrying...")
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(3)  # Wait longer between retries on slow TFs
                 else:
                     logger.error(f"✗ {name} [{timeframe}]: Failed to get valid price after {max_retries} attempts")
             
