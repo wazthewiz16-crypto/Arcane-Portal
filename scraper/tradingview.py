@@ -225,6 +225,15 @@ class TradingViewScraper:
                  except Exception:
                      pass
 
+            # --- CRITICAL VALIDATION ---
+            # close=1.0 is TradingView's placeholder value when the indicator hasn't loaded.
+            # Storing it overwrites good historical data. Always reject it.
+            final_close = data['PlotValues'].get('Close') if data else None
+            if not data or not final_close or final_close == 1.0:
+                logger.error(f"✗ {name} [{timeframe}]: Discarding invalid close={final_close} — not saving to DB.")
+                return None
+            # ---------------------------
+
             result = {
                 "symbol": symbol,
                 "name": name,
@@ -234,11 +243,7 @@ class TradingViewScraper:
                 **data
             }
             
-            if data and data['PlotValues'].get('Close'):
-                logger.info(f"✓ {name} [{timeframe}] - Close: {data['PlotValues'].get('Close')}")
-            else:
-                return None
-                
+            logger.info(f"✓ {name} [{timeframe}] - Close: {data['PlotValues'].get('Close')}")
             return result
             
         except Exception as e:
