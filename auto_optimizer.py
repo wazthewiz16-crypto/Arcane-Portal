@@ -103,6 +103,45 @@ class AutoOptimizer:
             updates['MIN_CONFIDENCE_SWING'] = swing_update
         if scalp_update is not None:
             updates['MIN_CONFIDENCE_SCALP'] = scalp_update
+            
+        # 3b. Advanced Optimization: Asset Blacklisting
+        toxic_assets = []
+        for asset, a_stats in breakdowns.get('by_asset', {}).items():
+            if a_stats['wins'] == 0 and a_stats['losses'] >= 3:
+                toxic_assets.append(asset.upper())
+        if toxic_assets:
+            logger.info(f"Blacklisting toxic assets: {toxic_assets}")
+            updates['ASSET_BLACKLIST'] = ",".join(toxic_assets)
+        else:
+            updates['ASSET_BLACKLIST'] = "" # Clear blacklist if no longer toxic
+
+        # 3c. Advanced Optimization: Max Confidence Cap ("Too Perfect" filter)
+        hi_conf_wins = 0
+        hi_conf_losses = 0
+        for bucket, c_stats in breakdowns.get('by_confidence', {}).items():
+            if bucket >= 85: # Look at extreme setups
+                hi_conf_wins += c_stats['wins']
+                hi_conf_losses += c_stats['losses']
+        
+        hi_conf_total = hi_conf_wins + hi_conf_losses
+        hi_conf_wr = (hi_conf_wins / hi_conf_total * 100) if hi_conf_total > 0 else 0
+        
+        if hi_conf_total >= 5 and hi_conf_wr <= 25:
+            logger.info(f"High-confidence setups are bleeding (WR: {hi_conf_wr:.0f}%). Capping Max Confidence to 88.")
+            updates['MAX_CONFIDENCE_SWING'] = 88
+            updates['MAX_CONFIDENCE_SCALP'] = 88
+        else:
+            updates['MAX_CONFIDENCE_SWING'] = 100
+            updates['MAX_CONFIDENCE_SCALP'] = 100
+
+        # 3d. Advanced Optimization: Dynamic Stop Loss Buffers (Chop Protection)
+        if metrics['losers'] >= 5 and metrics['win_rate_pct'] < 30:
+            logger.info(f"Systemic bleed detected (WR: {metrics['win_rate_pct']}%). Widening SL buffers for chop protection.")
+            updates['SL_BUFFER_PCT_SWING'] = 0.025
+            updates['SL_BUFFER_PCT_SCALP'] = 0.012
+        elif metrics['win_rate_pct'] > 45:
+            updates['SL_BUFFER_PCT_SWING'] = 0.015
+            updates['SL_BUFFER_PCT_SCALP'] = 0.008
 
         # 4. Global frequency safety valve — fires if PER-TYPE analysis didn't act
         #    (prevents system from starving itself when no closed data exists yet)
@@ -203,11 +242,23 @@ class AutoOptimizer:
         msg += f"Analysis Period: Last {hours}h\n"
         msg += f"Overall: WR {metrics['win_rate_pct']}% ({metrics['winners']}W/{metrics['losers']}L) | {metrics['signals_per_hour']} sigs/hr\n"
         msg += f"↳ Swings: {wr_str(swing_stats)} | Scalps: {wr_str(scalp_stats)}\n\n"
-        msg += "**⚡ ADJUSTMENTS APPLIED:**\n"
+        msg += "**⚡ MIN CONFIDENCE THRESHOLDS:**\n"
 
         for k, v in updates.items():
-            name = k.replace("MIN_CONFIDENCE_", "").title()
-            msg += f"• **{name} Confidence**: Set to **{v}**\n"
+            if "MIN_CONFIDENCE" in k:
+                name = k.replace("MIN_CONFIDENCE_", "").title()
+                msg += f"• **{name} Confidence**: Set to **{v}**\n"
+                
+        # Group advanced optimizations
+        advanced_updates = {k: v for k, v in updates.items() if "MIN_CONFIDENCE" not in k}
+        if advanced_updates:
+            msg += "\n**🛡️ ADVANCED SAFETY ENGAGED:**\n"
+            if 'ASSET_BLACKLIST' in advanced_updates and advanced_updates['ASSET_BLACKLIST']:
+                msg += f"• **Toxic Assets Benched**: `{advanced_updates['ASSET_BLACKLIST']}`\n"
+            if 'MAX_CONFIDENCE_SCALP' in advanced_updates and advanced_updates['MAX_CONFIDENCE_SCALP'] < 100:
+                msg += f"• **Max Confidence Cap**: `88%` (Filtering late 'perfect' setups)\n"
+            if 'SL_BUFFER_PCT_SCALP' in advanced_updates and advanced_updates['SL_BUFFER_PCT_SCALP'] > 0.008:
+                msg += f"• **Dynamic SL**: Buffers widened for chop protection\n"
 
         notifier.send_message(msg)
 

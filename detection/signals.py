@@ -40,18 +40,32 @@ class MangoSignalDetector:
                 assets_data[name] = {}
             assets_data[name][row['timeframe']] = row
         
+        # Load dynamic advanced optimization settings 
+        min_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", 70))
+        min_scalp = float(self.datastore.get_setting("MIN_CONFIDENCE_SCALP", 75))
+        max_swing = float(self.datastore.get_setting("MAX_CONFIDENCE_SWING", 100))
+        max_scalp = float(self.datastore.get_setting("MAX_CONFIDENCE_SCALP", 100))
+        
+        sl_buffer_swing = float(self.datastore.get_setting("SL_BUFFER_PCT_SWING", 0.015))
+        sl_buffer_scalp = float(self.datastore.get_setting("SL_BUFFER_PCT_SCALP", 0.008))
+        
+        blacklist_str = self.datastore.get_setting("ASSET_BLACKLIST", "")
+        blacklist = [a.strip().upper() for a in blacklist_str.split(',') if a.strip()]
+
         # Analyze each asset - both swing and scalp signals
         for name, timeframes in assets_data.items():
+            if name.upper() in blacklist:
+                logger.info(f"Skipping {name} — temporarily blacklisted by auto-optimizer.")
+                continue
+
             # Swing signals (HTF → LTF)
-            swing_signal = self._detect_swing_signal(name, timeframes)
-            min_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING))
-            if swing_signal and swing_signal['confidence'] >= min_swing:
+            swing_signal = self._detect_swing_signal(name, timeframes, sl_buffer_swing)
+            if swing_signal and min_swing <= swing_signal['confidence'] <= max_swing:
                 signals.append(swing_signal)
             
             # Scalp signals (scalp_htf → scalp_ltf)
-            scalp_signal = self._detect_scalp_signal(name, timeframes)
-            min_scalp = float(self.datastore.get_setting("MIN_CONFIDENCE_SCALP", settings.MIN_CONFIDENCE_SCALP))
-            if scalp_signal and scalp_signal['confidence'] >= min_scalp:
+            scalp_signal = self._detect_scalp_signal(name, timeframes, sl_buffer_scalp)
+            if scalp_signal and min_scalp <= scalp_signal['confidence'] <= max_scalp:
                 signals.append(scalp_signal)
         
         # Sort by confidence (highest first)
@@ -84,7 +98,7 @@ class MangoSignalDetector:
         return signals
     
     
-    def _detect_swing_signal(self, name: str, timeframes: Dict) -> Optional[Dict]:
+    def _detect_swing_signal(self, name: str, timeframes: Dict, sl_buffer: float = 0.015) -> Optional[Dict]:
         """
         Detect swing signal (HTF-based position trade)
         
@@ -158,7 +172,6 @@ class MangoSignalDetector:
             # Determine signal type
             signal_type = SignalType.SWING_LONG if htf_direction == 'LONG' else SignalType.SWING_SHORT
             
-            # Calculate TP/SL
             tp_sl = self._calculate_tp_sl(
                 entry_price=ltf_data['close'],
                 direction=htf_direction,
@@ -166,6 +179,11 @@ class MangoSignalDetector:
                 entry_zone_high=ltf_data['entry_up'],
                 candle_low=ltf_data['low'],
                 candle_high=ltf_data['high'],
+                timeframe=ltf_tf,
+                is_scalp=False,
+                asset_type=asset_type,
+                buffer_pct=sl_buffer
+            )
                 timeframe=htf_data['timeframe'],
                 asset_type=self._get_asset_type(name)
             )
@@ -192,7 +210,7 @@ class MangoSignalDetector:
         
         return None
     
-    def _detect_scalp_signal(self, name: str, timeframes: Dict) -> Optional[Dict]:
+    def _detect_scalp_signal(self, name: str, timeframes: Dict, sl_buffer: float = 0.008) -> Optional[Dict]:
         """
         Detect scalp signal (LTF-based quick trade)
         
@@ -260,12 +278,18 @@ class MangoSignalDetector:
             # Determine signal type
             signal_type = SignalType.SCALP_LONG if htf_direction == 'LONG' else SignalType.SCALP_SHORT
             
-            # Calculate TP/SL (tighter for scalps)
             tp_sl = self._calculate_tp_sl(
                 entry_price=ltf_data['close'],
                 direction=htf_direction,
                 entry_zone_low=ltf_data['entry_down'],
                 entry_zone_high=ltf_data['entry_up'],
+                candle_low=ltf_data['low'],
+                candle_high=ltf_data['high'],
+                timeframe=ltf_tf,
+                is_scalp=True,
+                asset_type=asset_type,
+                buffer_pct=sl_buffer
+            )
                 candle_low=ltf_data['low'],
                 candle_high=ltf_data['high'],
                 timeframe=ltf_data['timeframe'],
@@ -516,7 +540,8 @@ class MangoSignalDetector:
         candle_high: float,
         timeframe: str,
         is_scalp: bool = False,
-        asset_type: str = 'crypto'
+        asset_type: str = 'crypto',
+        buffer_pct: float = None
     ) -> Optional[Dict]:
         """
         Calculate Take Profit and Stop Loss levels
@@ -532,8 +557,8 @@ class MangoSignalDetector:
         """
         
         # Small buffer beyond Mango Dynamic boundaries
-        # Increased buffer to handle wider crypto market wicks
-        buffer_pct = 0.008 if is_scalp else 0.015
+        if buffer_pct is None:
+            buffer_pct = 0.008 if is_scalp else 0.015
         
         # Define a minimum SL distance to avoid micro-wicks stopping us out instantly
         if is_scalp:

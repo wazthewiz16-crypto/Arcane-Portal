@@ -175,12 +175,11 @@ Arcane-Portal/
 
 ## Support
 
-**Latest Update:** 2026-02-28
+**Latest Update:** 2026-03-01
+- **Advanced Auto-Optimizer Upgrades**: The optimizer now goes beyond just min-confidence tweaking. It will dynamically **widen Stop Losses** if the system is suffering from wick-outs (low WR). It will actively **blacklist toxic assets** (e.g. 0W/3L+) until they recover. And it enforces a **"Too Perfect" Guard (Max Confidence Cap)** protecting you from late entries in exhausted markets.
 - **Railway Cost Optimization**: Restructured the TimeframeScheduler to drop redundant scrapes. 1H and 4H charts no longer scrape on every cron run, reducing hourly browser load/compute time by ~45% and saving significant Railway credits.
 - **Critical Bug Fix**: Scraper was silently storing corrupt `close=1.0` placeholder values into the 1D database table because it didn't wait long enough for the HTF indicators to render. Increased 1D/4D load wait time to 12-15s and retries to 5. Corrupted rows purged.
-- **Self-Healing**: Auto-optimizer now evaluating swings vs scalps independently + safety valve.
 - **Improved Entries**: Integrated "Chase Filter" to reject late setups when HTF ribbon lags.
-- **Tighter Swings**: Added 4H→1H swing combination to catch market reversals faster.
 - **Cleanup**: Removed dead scalp combos (5m, 30m) that were never being scraped.
 
 **Built with:** Python • Streamlit • Playwright • PostgreSQL • Discord • Numpy/Pandas

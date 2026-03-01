@@ -162,17 +162,43 @@ class SignalAnalyzer:
             total_closed = by_ltf[tf]['wins'] + by_ltf[tf]['losses']
             by_ltf[tf]['win_rate'] = round((by_ltf[tf]['wins'] / total_closed * 100) if total_closed > 0 else 0, 1)
         
-        # Top assets by signal count
-        asset_counts = defaultdict(int)
+        # By asset (full win/loss tracking)
+        by_asset = defaultdict(lambda: {'count': 0, 'wins': 0, 'losses': 0})
         for s in signals:
-            asset_counts[s['asset_name']] += 1
-        
-        top_assets = sorted(asset_counts.items(), key=lambda x: x[1], reverse=True)[:5]
-        
+            asset = s['asset_name']
+            by_asset[asset]['count'] += 1
+            if s['status'] in ['TP_HIT', 'hit_tp']:
+                by_asset[asset]['wins'] += 1
+            elif s['status'] in ['SL_HIT', 'hit_sl']:
+                by_asset[asset]['losses'] += 1
+                
+        for a in by_asset:
+            total_closed = by_asset[a]['wins'] + by_asset[a]['losses']
+            by_asset[a]['win_rate'] = round((by_asset[a]['wins'] / total_closed * 100) if total_closed > 0 else 0, 1)
+
+        # By confidence bucket (grouped by 5)
+        by_conf = defaultdict(lambda: {'count': 0, 'wins': 0, 'losses': 0})
+        for s in signals:
+            try:
+                conf = float(s['confidence'])
+                bucket = int((conf // 5) * 5)  # groups into 75, 80, 85, 90, 95 etc
+                by_conf[bucket]['count'] += 1
+                if s['status'] in ['TP_HIT', 'hit_tp']:
+                    by_conf[bucket]['wins'] += 1
+                elif s['status'] in ['SL_HIT', 'hit_sl']:
+                    by_conf[bucket]['losses'] += 1
+            except:
+                pass
+                
+        for b in by_conf:
+            total_closed = by_conf[b]['wins'] + by_conf[b]['losses']
+            by_conf[b]['win_rate'] = round((by_conf[b]['wins'] / total_closed * 100) if total_closed > 0 else 0, 1)
+
         return {
             'by_signal_type': dict(by_type),
             'by_timeframe': dict(by_ltf),
-            'top_5_assets': top_assets
+            'by_asset': dict(by_asset),
+            'by_confidence': dict(by_conf)
         }
     
     def _generate_recommendations(self, metrics, breakdowns):
