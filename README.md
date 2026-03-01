@@ -89,7 +89,8 @@ Dashboard will be available at: **http://localhost:8501**
 **HTF Swings** (Position trades):
 - 4 Day HTF → 1 Day LTF
 - 1 Day HTF → 4H LTF
-- 12H HTF → 1H LTF
+- 4H HTF → 1H LTF  *(Faster reaction)*
+- 12H HTF → 1H LTF *(Slower fallback)*
 
 **LTF Scalps** (Quick trades):
 - 4H HTF → 15m LTF
@@ -99,7 +100,8 @@ Dashboard will be available at: **http://localhost:8501**
 ### Entry Conditions (Balanced Approach)
 1. **Trend Alignment**: LTF price must align with HTF trend.
 2. **Daily Check**: Swings must not go against the 1D trend (Grandmaster filter).
-3. **Candle Quality**:
+3. **Chase Filter**: Rejects signal if price has already moved > 1.5x the zone width past the entry point.
+4. **Candle Quality**:
    - Meaningful body size (≥15% of range, catching hammers/pin-bars).
    - **Momentum**: Close must be in the correct 65% of the candle (e.g. upper 65% for Longs).
    - **Chop Guard**: Rejects squeezing zones narrower than 0.2%.
@@ -113,11 +115,13 @@ Dashboard will be available at: **http://localhost:8501**
 ## System Components & Automation
 
 ### The Auto-Optimizer (`auto_optimizer.py`)
-A self-healing loop that runs periodically to evaluate the Win Rate and Signal Frequency of the past 24-48 hours. 
-- If win rate crashes, it raises confidence thresholds tightly (max 85/88).
-- If win rate is excellent, it slightly loosens to catch more moves.
+A self-healing loop that runs periodically to evaluate the Win Rate and Signal Frequency of the past 24-48 hours. **It evaluates Swings and Scalps independently.**
+- If a signal type's win rate crashes, it raises its confidence threshold tightly (max 85/88).
+- If win rate is excellent (>65%), it slightly loosens to catch more moves.
 - If signal frequency drops below 0.3/hr, it lowers thresholds (Safety Valve) to ensure the system doesn't starve itself.
-*It updates parameters directly in the database and sends plain-text reports to Discord.*
+*It updates parameters directly in the database and sends plain-text reports to Discord.* 
+
+**Recommended Schedule:** Run 3x daily (e.g. 3am, 9:30am, 5pm EST) via Railway Cron or external scheduler to capture post-session resolutions.
 
 ### Continuous Monitoring (`monitor_signals.py`)
 The primary execution script.
@@ -170,10 +174,10 @@ Arcane-Portal/
 
 ## Support
 
-**Latest Update:** 2026-02-25
-- **Self-Healing**: Robust Auto-Optimizer prevents signal starvation.
-- **Improved Parsing**: Ribbon-based direction detection (fixes null TV scrapes).
-- **Relaxed Filters**: Expanded body ratio and momentum close logic to increase viable trade volume by 40%.
-- **Robust SL**: Enforced fractional buffer padding per asset class.
+**Latest Update:** 2026-02-28
+- **Self-Healing**: Auto-optimizer now evaluating swings vs scalps independently + safety valve.
+- **Improved Entries**: Integrated "Chase Filter" to reject late setups when HTF ribbon lags.
+- **Tighter Swings**: Added 4H->1H swing combination to catch market reversals faster.
+- **Relaxed Filters**: Expanded body ratio and momentum close logic to increase viable trade volume.
 
 **Built with:** Python • Streamlit • Playwright • PostgreSQL • Discord • Numpy/Pandas
