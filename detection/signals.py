@@ -264,8 +264,18 @@ class MangoSignalDetector:
                     # logger.debug(f"Skipping scalp for {name}: Daily {daily_dir} vs HTF {htf_direction}")
                     continue
             # ---------------------------------------------
-            
-            # ---------------------------------------------
+
+            # --- LTF Ribbon Confirmation (Critical) ---
+            # The 15m Mango Dynamic ribbon *itself* must agree with the trade direction.
+            # Without this, the system would short an asset whose 15m ribbon is still
+            # bullish just because the 4H is bearish — a contradictory, high-risk entry.
+            # e.g. ADA SHORT 4H→15m fired when the 15m showed Trend: Bullish (D1 > D2)
+            ltf_ribbon_dir = self._get_htf_direction(ltf_data)
+            if htf_direction == 'LONG' and ltf_ribbon_dir == 'SHORT':
+                continue  # Don't long if 15m ribbon is bearish
+            if htf_direction == 'SHORT' and ltf_ribbon_dir == 'LONG':
+                continue  # Don't short if 15m ribbon is still bullish
+            # ------------------------------------------
             
             # --- Candle Color Check (Scalp Only) ---
             # Ensure momentum aligns with trade direction (Green for Long, Red for Short)
