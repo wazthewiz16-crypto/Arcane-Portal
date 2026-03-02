@@ -53,20 +53,37 @@ class MangoSignalDetector:
         blacklist = [a.strip().upper() for a in blacklist_str.split(',') if a.strip()]
 
         # Analyze each asset - both swing and scalp signals
+        # Dedup set: (asset_name, direction) — prevents the same underlying
+        # trade from firing twice in one run via different HTF combinations
+        # e.g. BTC LONG via 1H->15m AND BTC LONG via 4H->15m = same trade, one signal
+        seen_this_run = set()
+
         for name, timeframes in assets_data.items():
             if name.upper() in blacklist:
                 logger.info(f"Skipping {name} — temporarily blacklisted by auto-optimizer.")
                 continue
 
-            # Swing signals (HTF → LTF)
+            # Swing signals (HTF -> LTF)
             swing_signal = self._detect_swing_signal(name, timeframes, sl_buffer_swing)
             if swing_signal and min_swing <= swing_signal['confidence'] <= max_swing:
-                signals.append(swing_signal)
+                direction = 'LONG' if 'LONG' in swing_signal['signal_type'] else 'SHORT'
+                key = (name, 'SWING', direction)
+                if key not in seen_this_run:
+                    seen_this_run.add(key)
+                    signals.append(swing_signal)
+                else:
+                    logger.debug(f"Dedup: suppressed duplicate {swing_signal['signal_type']} for {name} (already queued this run)")
             
-            # Scalp signals (scalp_htf → scalp_ltf)
+            # Scalp signals (scalp_htf -> scalp_ltf)
             scalp_signal = self._detect_scalp_signal(name, timeframes, sl_buffer_scalp)
             if scalp_signal and min_scalp <= scalp_signal['confidence'] <= max_scalp:
-                signals.append(scalp_signal)
+                direction = 'LONG' if 'LONG' in scalp_signal['signal_type'] else 'SHORT'
+                key = (name, 'SCALP', direction)
+                if key not in seen_this_run:
+                    seen_this_run.add(key)
+                    signals.append(scalp_signal)
+                else:
+                    logger.debug(f"Dedup: suppressed duplicate {scalp_signal['signal_type']} for {name} (already queued this run)")
         
         # Sort by confidence (highest first)
         signals.sort(key=lambda x: x['confidence'], reverse=True)

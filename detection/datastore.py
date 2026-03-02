@@ -343,11 +343,18 @@ class MangoDataStore:
             self.save_scrape(scrape)
     
     def save_signal(self, signal_data):
-        """Save a trading signal (prevents duplicates of ACTIVE signals)"""
-        from datetime import datetime
+        """Save a trading signal.
+        
+        Deduplication rules:
+        1. Never create a new signal if one of the same type is still ACTIVE.
+        2. Never create a new signal within 4 hours of the last one for the same
+           asset+direction (even if the old one already closed via TP/SL).
+           This prevents re-entry spam when a signal closes quickly.
+        """
+        from datetime import datetime, timedelta
         
         with self.get_connection() as conn:
-            # Check for ANY duplicate active signal
+            # Rule 1: Block if an ACTIVE signal already exists
             cursor = self._execute_query(conn, """
                 SELECT id FROM signals
                 WHERE asset_name = ?
@@ -360,8 +367,30 @@ class MangoDataStore:
             existing = cursor.fetchone()
             
             if existing:
-                # Signal already exists, return existing ID
                 return existing[0]
+
+            # Rule 2: 4-hour cooldown per asset+direction (any status)
+            cooldown_cutoff = (datetime.utcnow() - timedelta(hours=4)).isoformat()
+            cursor = self._execute_query(conn, """
+                SELECT id FROM signals
+                WHERE asset_name = ?
+                AND signal_type = ?
+                AND created_at >= ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (
+                signal_data['asset_name'],
+                signal_data['signal_type'],
+                cooldown_cutoff
+            ))
+            recent = cursor.fetchone()
+            if recent:
+                import logging
+                logging.getLogger(__name__).info(
+                    f"Cooldown: suppressing {signal_data['signal_type']} for "
+                    f"{signal_data['asset_name']} — signal already created within 4h"
+                )
+                return recent[0]
             
             # No duplicate found, insert new signal
             now = datetime.utcnow().isoformat()
