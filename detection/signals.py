@@ -154,14 +154,17 @@ class MangoSignalDetector:
                     continue
             # ---------------------------------------------
 
-            # --- Swing Trend Alignment Check ---
-            # Don't trade against the LTF trend (e.g. Don't Short if 4H is Bullish)
+            # --- Swing LTF Ribbon Confirmation ---
+            # The LTF ribbon must EXPLICITLY agree with the signal direction.
+            # NEUTRAL is NOT enough — it means the ribbon hasn't confirmed the move yet.
+            # e.g. AVAX 4H SHORT fired when 1H was NEUTRAL (hadn't closed below ribbon yet).
+            # Fix: require 1H to be explicitly SHORT before triggering a SWING SHORT.
             ltf_direction = self._get_htf_direction(ltf_data)
-            if htf_direction == 'LONG' and ltf_direction == 'SHORT':
-                continue # Reject Long if LTF is Bearish
-            if htf_direction == 'SHORT' and ltf_direction == 'LONG':
-                continue # Reject Short if LTF is Bullish
-            # -----------------------------------
+            if htf_direction == 'LONG' and ltf_direction != 'LONG':
+                continue  # LTF must be explicitly bullish for a LONG (not just non-SHORT)
+            if htf_direction == 'SHORT' and ltf_direction != 'SHORT':
+                continue  # LTF must be explicitly bearish for a SHORT (not just non-LONG)
+            # -------------------------------------
             
             # Check LTF entry conditions
             ltf_entry = self._check_ltf_entry(ltf_data, htf_direction)
