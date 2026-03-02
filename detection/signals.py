@@ -382,21 +382,28 @@ class MangoSignalDetector:
         if not (price and mango_d1 and mango_d2):
             return None
         
-        # The Mango Dynamic ribbon direction is determined by which band is on top:
-        # Bullish ribbon: D1 > D2 (D1 is the upper band, price is being supported)
-        # Bearish ribbon: D2 > D1 (D2 is the upper band, price is being pressured down)
-        is_bullish_ribbon = mango_d1 > mango_d2
+        # The Mango Dynamic ribbon direction is determined by BOTH which band is on top
+        # AND where price is relative to the bands.
+        # Key insight: if price is ABOVE max(D1,D2), it's above the whole ribbon → bullish structure.
+        #              if price is BELOW min(D1,D2), it's below the whole ribbon → bearish structure.
+        #              if price is BETWEEN D1 and D2, it's inside the ribbon → in transition (NEUTRAL).
+        ribbon_top    = max(mango_d1, mango_d2)  # highest ribbon band (ceiling)
+        ribbon_bottom = min(mango_d1, mango_d2)  # lowest ribbon band (floor)
+        is_bullish_ribbon = mango_d1 > mango_d2  # D1 on top = bullish crossover
         
-        if is_bullish_ribbon:
-            # Bullish trend: price above or within the support zone
-            if entry_down and price >= entry_down:
-                return 'LONG'
+        if price > ribbon_top:
+            # Price is ABOVE the entire ribbon → bullish structure regardless of band order
+            return 'LONG'
+        elif price < ribbon_bottom:
+            # Price is BELOW the entire ribbon → bearish structure regardless of band order
+            return 'SHORT'
         else:
-            # Bearish trend: price below or within the resistance zone
-            if entry_up and price <= entry_up:
-                return 'SHORT'
-        
-        return 'NEUTRAL'
+            # Price is INSIDE the ribbon → transitioning / neutral
+            # Use ribbon direction as a tiebreaker: if D1>D2 lean LONG, else lean SHORT
+            if is_bullish_ribbon:
+                return 'LONG'   # Bullish crossover, price consolidating inside ribbon
+            else:
+                return 'SHORT'  # Bearish crossover, price consolidating inside ribbon
     
     def _check_ltf_entry(self, ltf_data: Dict, direction: str) -> Dict:
         """
