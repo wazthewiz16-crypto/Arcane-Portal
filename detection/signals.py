@@ -164,27 +164,6 @@ class MangoSignalDetector:
                 continue  # LTF must be explicitly bearish for a SHORT (not just non-LONG)
             # -------------------------------------
 
-            # --- 15m Real-Time Ribbon Cross-check (Mid-Candle Flip Detection) ---
-            # Problem: the 1H is only scraped on candle close (up to 59 min stale).
-            # The ribbon can FLIP within the live candle but the DB still shows old direction.
-            # Root cause of DOGE SHORT: 1H D2 dropped from 0.09396→0.09308 mid-candle,
-            # flipping ribbon bullish AFTER the scrape, but DB still said bearish at signal time.
-            # Fix: use the 15m ribbon (scraped every 15 min, always fresh) as a real-time proxy.
-            # If 15m D1/D2 definitively disagrees with the signal direction, kill the signal.
-            fresh_15m = timeframes.get('15m')
-            if fresh_15m:
-                m15_d1 = fresh_15m.get('mango_d1')
-                m15_d2 = fresh_15m.get('mango_d2')
-                if m15_d1 and m15_d2:
-                    m15_bullish = m15_d1 > m15_d2
-                    if htf_direction == 'SHORT' and m15_bullish:
-                        logger.debug(f"Skipping {name} SWING SHORT: 15m ribbon is BULLISH (D1={m15_d1:.5f} > D2={m15_d2:.5f}) — mid-candle flip detected")
-                        continue  # 15m is bullish → LTF may be turning, don't short
-                    if htf_direction == 'LONG' and not m15_bullish:
-                        logger.debug(f"Skipping {name} SWING LONG: 15m ribbon is BEARISH (D2={m15_d2:.5f} > D1={m15_d1:.5f}) — mid-candle flip detected")
-                        continue  # 15m is bearish → LTF may be turning, don't long
-            # ------------------------------------------------------------------
-            
             # Check LTF entry conditions
             ltf_entry = self._check_ltf_entry(ltf_data, htf_direction)
             if not ltf_entry['valid']:
