@@ -157,14 +157,33 @@ class MangoSignalDetector:
             # --- Swing LTF Ribbon Confirmation ---
             # The LTF ribbon must EXPLICITLY agree with the signal direction.
             # NEUTRAL is NOT enough — it means the ribbon hasn't confirmed the move yet.
-            # e.g. AVAX 4H SHORT fired when 1H was NEUTRAL (hadn't closed below ribbon yet).
-            # Fix: require 1H to be explicitly SHORT before triggering a SWING SHORT.
             ltf_direction = self._get_htf_direction(ltf_data)
             if htf_direction == 'LONG' and ltf_direction != 'LONG':
                 continue  # LTF must be explicitly bullish for a LONG (not just non-SHORT)
             if htf_direction == 'SHORT' and ltf_direction != 'SHORT':
                 continue  # LTF must be explicitly bearish for a SHORT (not just non-LONG)
             # -------------------------------------
+
+            # --- 15m Real-Time Ribbon Cross-check (Mid-Candle Flip Detection) ---
+            # Problem: the 1H is only scraped on candle close (up to 59 min stale).
+            # The ribbon can FLIP within the live candle but the DB still shows old direction.
+            # Root cause of DOGE SHORT: 1H D2 dropped from 0.09396→0.09308 mid-candle,
+            # flipping ribbon bullish AFTER the scrape, but DB still said bearish at signal time.
+            # Fix: use the 15m ribbon (scraped every 15 min, always fresh) as a real-time proxy.
+            # If 15m D1/D2 definitively disagrees with the signal direction, kill the signal.
+            fresh_15m = timeframes.get('15m')
+            if fresh_15m:
+                m15_d1 = fresh_15m.get('mango_d1')
+                m15_d2 = fresh_15m.get('mango_d2')
+                if m15_d1 and m15_d2:
+                    m15_bullish = m15_d1 > m15_d2
+                    if htf_direction == 'SHORT' and m15_bullish:
+                        logger.debug(f"Skipping {name} SWING SHORT: 15m ribbon is BULLISH (D1={m15_d1:.5f} > D2={m15_d2:.5f}) — mid-candle flip detected")
+                        continue  # 15m is bullish → LTF may be turning, don't short
+                    if htf_direction == 'LONG' and not m15_bullish:
+                        logger.debug(f"Skipping {name} SWING LONG: 15m ribbon is BEARISH (D2={m15_d2:.5f} > D1={m15_d1:.5f}) — mid-candle flip detected")
+                        continue  # 15m is bearish → LTF may be turning, don't long
+            # ------------------------------------------------------------------
             
             # Check LTF entry conditions
             ltf_entry = self._check_ltf_entry(ltf_data, htf_direction)
