@@ -368,7 +368,7 @@ class MangoSignalDetector:
         # Verify the zone has enough width to be a valid trend, not a squeeze/chop
         # Width is difference between Entry Up and Entry Down relative to Price
         zone_width_pct = abs(entry_up - entry_down) / price
-        min_width = 0.002  # Relaxed from 0.003 to 0.002 (0.2%) to allow more trades
+        min_width = 0.004  # 0.4% — doubled from 0.2% to filter chop/squeeze zones
         
         if zone_width_pct < min_width:
              return {'valid': False, 'reason': f'Chop/Squeeze detected (Zone width {zone_width_pct*100:.2f}%)'}
@@ -407,15 +407,15 @@ class MangoSignalDetector:
         zone_size = entry_up - entry_down
         
         if direction == 'LONG':
-            # For longs: Enter in bottom 90% of zone (avoid extreme top edge)
-            optimal_entry_top = entry_down + (zone_size * 0.90)
+            # For longs: Enter in bottom 65% of zone (better entry, not near the top edge)
+            optimal_entry_top = entry_down + (zone_size * 0.65)
             if price > optimal_entry_top:
-                return {'valid': False, 'reason': f'Price too high in zone (want bottom 90%)'}
+                return {'valid': False, 'reason': f'Price too high in zone (want bottom 65%)'}
         else:
-            # For shorts: Enter in top 90% of zone (avoid extreme bottom edge)
-            optimal_entry_bottom = entry_up - (zone_size * 0.90)
+            # For shorts: Enter in top 65% of zone (better entry, not near the bottom edge)
+            optimal_entry_bottom = entry_up - (zone_size * 0.65)
             if price < optimal_entry_bottom:
-                return {'valid': False, 'reason': f'Price too low in zone (want top 90%)'}
+                return {'valid': False, 'reason': f'Price too low in zone (want top 65%)'}
         
         # --- END PHASE 1 IMPROVEMENTS ---
 
@@ -514,9 +514,10 @@ class MangoSignalDetector:
         if is_swing:
             confidence += 5
             
-        # Perfect Bounce Pattern Reward (Prop Firm Rule #2)
+        # Perfect Bounce Pattern Reward
+        # Reduced from +15 to +8 — was too easily inflating scores into the 90%+ bucket
         if is_bounce:
-            confidence += 15 # Increased bonus for bounce (was 10)
+            confidence += 8
         
         # Cap at 100%
         return min(confidence, 100.0)
