@@ -385,7 +385,7 @@ class MangoSignalDetector:
         # Verify the zone has enough width to be a valid trend, not a squeeze/chop
         # Width is difference between Entry Up and Entry Down relative to Price
         zone_width_pct = abs(entry_up - entry_down) / price
-        min_width = 0.004  # 0.4% — doubled from 0.2% to filter chop/squeeze zones
+        min_width = 0.003  # 0.3% — loosened from 0.4% (was killing tradfi index signals)
         
         if zone_width_pct < min_width:
              return {'valid': False, 'reason': f'Chop/Squeeze detected (Zone width {zone_width_pct*100:.2f}%)'}
@@ -424,15 +424,15 @@ class MangoSignalDetector:
         zone_size = entry_up - entry_down
         
         if direction == 'LONG':
-            # For longs: Enter in bottom 65% of zone (better entry, not near the top edge)
-            optimal_entry_top = entry_down + (zone_size * 0.65)
+            # For longs: Enter in bottom 75% of zone (avoids extreme top edge without being too strict)
+            optimal_entry_top = entry_down + (zone_size * 0.75)
             if price > optimal_entry_top:
-                return {'valid': False, 'reason': f'Price too high in zone (want bottom 65%)'}
+                return {'valid': False, 'reason': f'Price too high in zone (want bottom 75%)'}
         else:
-            # For shorts: Enter in top 65% of zone (better entry, not near the bottom edge)
-            optimal_entry_bottom = entry_up - (zone_size * 0.65)
+            # For shorts: Enter in top 75% of zone (avoids extreme bottom edge without being too strict)
+            optimal_entry_bottom = entry_up - (zone_size * 0.75)
             if price < optimal_entry_bottom:
-                return {'valid': False, 'reason': f'Price too low in zone (want top 65%)'}
+                return {'valid': False, 'reason': f'Price too low in zone (want top 75%)'}
         
         # --- END PHASE 1 IMPROVEMENTS ---
 

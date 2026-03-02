@@ -369,8 +369,8 @@ class MangoDataStore:
             if existing:
                 return existing[0]
 
-            # Rule 2: 4-hour cooldown per asset+direction (any status)
-            cooldown_cutoff = (datetime.utcnow() - timedelta(hours=4)).isoformat()
+            # Rule 2: 2-hour cooldown per asset+direction (any status)
+            cooldown_cutoff = (datetime.utcnow() - timedelta(hours=2)).isoformat()
             cursor = self._execute_query(conn, """
                 SELECT id FROM signals
                 WHERE asset_name = ?
