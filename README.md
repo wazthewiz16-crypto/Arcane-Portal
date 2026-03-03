@@ -175,7 +175,8 @@ Arcane-Portal/
 
 ## Support
 
-**Latest Update:** 2026-03-02
+**Latest Update:** 2026-03-03
+- **Mango Equilibrium Tracker (Secondary Confirmation)**: Integrated the Mango Equilibrium Tracker as a secondary filter on all signals. The scraper now extracts `eqband1`, `eqband2`, `Upper VolB`, and `Lower VolB` from TradingView. Signals are **blocked** when both eqband1 AND eqband2 are below 1.0 (volatility compressing / choppy market). When both are above 1.0 (expanding / trending), a **+3 confidence bonus** is applied. Missing data passes through silently (no false negatives on older scrapes).
 - **Core Direction Detection Fix (Root Cause)**: Rewrote `_get_htf_direction` to use price position relative to the actual ribbon bands (`max(D1,D2)` / `min(D1,D2)`) instead of just checking which band is on top. Previously, if D2 was slightly above D1 (bearish crossover), the function returned SHORT even when price was visually above the entire ribbon — because it compared to `entry_up` (which extends above the ribbon itself). Now: price above the ribbon = LONG, price below the ribbon = SHORT, price inside the ribbon = neutral tiebreaker.
 - **Swing LTF Ribbon Confirmation (Stricter)**: The 1H LTF ribbon must now **explicitly** confirm direction before a swing signal fires. Previously NEUTRAL (transition state) passed through. Fixed after a DOGE SHORT 4H→1H fired while the 1H ribbon was bullish (price pulling back into zone).
 - **Scalp LTF Ribbon Confirmation**: Same fix applied to scalps — the 15m Mango Dynamic ribbon must explicitly agree with the trade direction. Prevents shorting when the 15m ribbon is still bullish (e.g. ADA SHORT 4H→15m was firing while 15m showed Trend: Bullish).
