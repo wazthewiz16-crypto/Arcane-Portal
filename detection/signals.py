@@ -402,24 +402,34 @@ class MangoSignalDetector:
         """
         Secondary confirmation using Mango Equilibrium Tracker.
         
-        Checks volatility expansion/compression via eqband1 & eqband2:
-        - Both > 1.0 → expanding (trending) → signal confirmed + confidence bonus
-        - Both < 1.0 → compressing (chop/ranging) → signal blocked
-        - Mixed or missing → pass through (no penalty)
+        Compares eqband1/eqband2 spread vs Upper VolB / Lower VolB spread:
+        - EXPANDING: eq bands surround the vol bands (eq_spread > vol_spread)
+          → volatility expanding, trending market → signal confirmed + confidence bonus
+        - COMPRESSING: eq bands squeezed inside vol bands (eq_spread < vol_spread)
+          → volatility compressing, choppy/ranging → signal blocked
+        
+        Note: when expanding, ONE eq band is above 1.0 and the OTHER is below 1.0.
+        The old "both > 1.0" logic was wrong — expansion means bands spread APART.
         """
         eq1 = ltf_data.get('eq_band1')
         eq2 = ltf_data.get('eq_band2')
+        upper_vol = ltf_data.get('upper_vol_b')
+        lower_vol = ltf_data.get('lower_vol_b')
         
-        if not (eq1 and eq2):
+        if not (eq1 and eq2 and upper_vol and lower_vol):
             # No equilibrium data available yet — pass through silently
             return {'expanding': True, 'confidence_bonus': 0}
         
-        both_expanding = eq1 > 1.0 and eq2 > 1.0
-        both_compressing = eq1 < 1.0 and eq2 < 1.0
+        eq_spread = abs(eq1 - eq2)
+        vol_spread = abs(upper_vol - lower_vol)
+        
+        # Expanding = eq bands are WIDER than vol bands (surrounding them)
+        # Compressing = eq bands are NARROWER than vol bands (squeezed inside)
+        is_expanding = eq_spread >= vol_spread
         
         return {
-            'expanding': not both_compressing,
-            'confidence_bonus': 3.0 if both_expanding else 0.0
+            'expanding': is_expanding,
+            'confidence_bonus': 3.0 if is_expanding else 0.0
         }
     
     def _check_ltf_entry(self, ltf_data: Dict, direction: str) -> Dict:
