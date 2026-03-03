@@ -184,15 +184,18 @@ class MangoSignalDetector:
                 continue  # Price has already dumped far below support — too late
             # ---------------------------------
 
-            # --- Secondary Confirmation: Mango Equilibrium Tracker ---
-            eq_check = self._check_equilibrium(ltf_data)
-            if not eq_check['expanding']:
-                continue  # Both eqband1 & eqband2 < 1.0 → compressing/chop → skip
-            # --------------------------------------------------------
+            # --- Secondary Confirmation: Mango Equilibrium Tracker (both TFs) ---
+            htf_eq = self._check_equilibrium(htf_data)
+            ltf_eq = self._check_equilibrium(ltf_data)
+            if not htf_eq['expanding'] or not ltf_eq['expanding']:
+                continue  # Either TF compressing → chop → skip
+            # -------------------------------------------------------------------
             
             # Calculate confidence
             confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=True, is_bounce=ltf_entry.get('is_bounce', False))
-            confidence += eq_check['confidence_bonus']  # +3 when fully expanding
+            # +3 bonus only when BOTH TFs are expanding
+            if htf_eq['expanding'] and ltf_eq['expanding']:
+                confidence += min(htf_eq['confidence_bonus'], ltf_eq['confidence_bonus'])
             
             # Determine signal type
             signal_type = SignalType.SWING_LONG if htf_direction == 'LONG' else SignalType.SWING_SHORT
@@ -304,15 +307,18 @@ class MangoSignalDetector:
             if not ltf_entry['valid']:
                 continue
 
-            # --- Secondary Confirmation: Mango Equilibrium Tracker ---
-            eq_check = self._check_equilibrium(ltf_data)
-            if not eq_check['expanding']:
-                continue  # Both eqband1 & eqband2 < 1.0 → compressing/chop → skip
-            # --------------------------------------------------------
+            # --- Secondary Confirmation: Mango Equilibrium Tracker (both TFs) ---
+            htf_eq = self._check_equilibrium(htf_data)
+            ltf_eq = self._check_equilibrium(ltf_data)
+            if not htf_eq['expanding'] or not ltf_eq['expanding']:
+                continue  # Either TF compressing → chop → skip
+            # -------------------------------------------------------------------
             
             # Calculate confidence (stricter for scalps)
             confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=False, is_bounce=ltf_entry.get('is_bounce', False))
-            confidence += eq_check['confidence_bonus']  # +3 when fully expanding
+            # +3 bonus only when BOTH TFs are expanding
+            if htf_eq['expanding'] and ltf_eq['expanding']:
+                confidence += min(htf_eq['confidence_bonus'], ltf_eq['confidence_bonus'])
             
             # Determine signal type
             signal_type = SignalType.SCALP_LONG if htf_direction == 'LONG' else SignalType.SCALP_SHORT
