@@ -205,7 +205,12 @@ class TradingViewScraper:
                         D1: findVal('MangoD1'),
                         D2: findVal('MangoD2'),
                         EntryUp: findVal('Entry Zone Upper'),
-                        EntryDown: findVal('Entry Zone Lower')
+                        EntryDown: findVal('Entry Zone Lower'),
+                        // Mango Equilibrium Tracker fields
+                        UpperVolB: findVal('Upper VolB'),
+                        LowerVolB: findVal('Lower Vol'),
+                        EqBand1: findVal('eqband1'),
+                        EqBand2: findVal('eqband2')
                     };
                     
                     return res;

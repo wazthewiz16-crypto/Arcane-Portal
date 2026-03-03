@@ -48,12 +48,24 @@ class MangoDataStore:
                         entry_down REAL,
                         candle_time TEXT,
                         trend TEXT,
+                        upper_vol_b REAL,
+                        lower_vol_b REAL,
+                        eq_band1 REAL,
+                        eq_band2 REAL,
                         UNIQUE(name, timeframe, candle_time)
                     )
                 """)
                 
-                # Ensure trend column exists (Migration)
+                # Ensure new columns exist (Migrations)
                 try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN IF NOT EXISTS trend TEXT")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN IF NOT EXISTS upper_vol_b REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN IF NOT EXISTS lower_vol_b REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN IF NOT EXISTS eq_band1 REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN IF NOT EXISTS eq_band2 REAL")
                 except: pass
                 
                 self._execute_query(conn, """
@@ -140,12 +152,24 @@ class MangoDataStore:
                         entry_down REAL,
                         candle_time TEXT,
                         trend TEXT,
+                        upper_vol_b REAL,
+                        lower_vol_b REAL,
+                        eq_band1 REAL,
+                        eq_band2 REAL,
                         UNIQUE(name, timeframe, candle_time)
                     )
                 """)
                 
-                # Ensure trend column exists (Migration)
+                # Ensure new columns exist (Migrations)
                 try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN trend TEXT")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN upper_vol_b REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN lower_vol_b REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN eq_band1 REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN eq_band2 REAL")
                 except: pass
                 
                 self._execute_query(conn, """
@@ -278,7 +302,9 @@ class MangoDataStore:
                         'symbol=EXCLUDED.symbol, tf_type=EXCLUDED.tf_type, timestamp=EXCLUDED.timestamp, ' + \
                         'open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, close=EXCLUDED.close, ' + \
                         'volume=EXCLUDED.volume, mango_d1=EXCLUDED.mango_d1, mango_d2=EXCLUDED.mango_d2, ' + \
-                        'entry_up=EXCLUDED.entry_up, entry_down=EXCLUDED.entry_down'
+                        'entry_up=EXCLUDED.entry_up, entry_down=EXCLUDED.entry_down, ' + \
+                        'upper_vol_b=EXCLUDED.upper_vol_b, lower_vol_b=EXCLUDED.lower_vol_b, ' + \
+                        'eq_band1=EXCLUDED.eq_band1, eq_band2=EXCLUDED.eq_band2'
             
             # Handle last_insert_rowid() for PostgreSQL
             if 'last_insert_rowid()' in pg_query:
@@ -316,13 +342,14 @@ class MangoDataStore:
                 INSERT OR REPLACE INTO scrapes (
                 symbol, name, timeframe, tf_type, timestamp,
                     open, high, low, close, volume,
-                    mango_d1, mango_d2, entry_up, entry_down, candle_time, trend
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    mango_d1, mango_d2, entry_up, entry_down, candle_time, trend,
+                    upper_vol_b, lower_vol_b, eq_band1, eq_band2
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 scrape_data['symbol'],
                 scrape_data['name'],
                 scrape_data['timeframe'],
-                scrape_data.get('tf_type', 'general'),  # Default to 'general' if not provided
+                scrape_data.get('tf_type', 'general'),
                 scrape_data['timestamp'],
                 pv.get('Open'),
                 pv.get('High'),
@@ -334,7 +361,11 @@ class MangoDataStore:
                 pv.get('EntryUp'),
                 pv.get('EntryDown'),
                 candle_time,
-                pv.get('Trend')
+                pv.get('Trend'),
+                pv.get('UpperVolB'),
+                pv.get('LowerVolB'),
+                pv.get('EqBand1'),
+                pv.get('EqBand2')
             ))
     
     def save_scrapes(self, scrape_list):

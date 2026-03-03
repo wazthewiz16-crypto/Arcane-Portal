@@ -183,9 +183,16 @@ class MangoSignalDetector:
             if htf_direction == 'SHORT' and ltf_price < ltf_entry_down - chase_buffer:
                 continue  # Price has already dumped far below support — too late
             # ---------------------------------
+
+            # --- Secondary Confirmation: Mango Equilibrium Tracker ---
+            eq_check = self._check_equilibrium(ltf_data)
+            if not eq_check['expanding']:
+                continue  # Both eqband1 & eqband2 < 1.0 → compressing/chop → skip
+            # --------------------------------------------------------
             
             # Calculate confidence
             confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=True, is_bounce=ltf_entry.get('is_bounce', False))
+            confidence += eq_check['confidence_bonus']  # +3 when fully expanding
             
             # Determine signal type
             signal_type = SignalType.SWING_LONG if htf_direction == 'LONG' else SignalType.SWING_SHORT
@@ -296,9 +303,16 @@ class MangoSignalDetector:
             ltf_entry = self._check_ltf_entry(ltf_data, htf_direction)
             if not ltf_entry['valid']:
                 continue
+
+            # --- Secondary Confirmation: Mango Equilibrium Tracker ---
+            eq_check = self._check_equilibrium(ltf_data)
+            if not eq_check['expanding']:
+                continue  # Both eqband1 & eqband2 < 1.0 → compressing/chop → skip
+            # --------------------------------------------------------
             
             # Calculate confidence (stricter for scalps)
             confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=False, is_bounce=ltf_entry.get('is_bounce', False))
+            confidence += eq_check['confidence_bonus']  # +3 when fully expanding
             
             # Determine signal type
             signal_type = SignalType.SCALP_LONG if htf_direction == 'LONG' else SignalType.SCALP_SHORT
@@ -383,6 +397,30 @@ class MangoSignalDetector:
                 return 'LONG'   # Bullish crossover, price consolidating inside ribbon
             else:
                 return 'SHORT'  # Bearish crossover, price consolidating inside ribbon
+    
+    def _check_equilibrium(self, ltf_data: Dict) -> Dict:
+        """
+        Secondary confirmation using Mango Equilibrium Tracker.
+        
+        Checks volatility expansion/compression via eqband1 & eqband2:
+        - Both > 1.0 → expanding (trending) → signal confirmed + confidence bonus
+        - Both < 1.0 → compressing (chop/ranging) → signal blocked
+        - Mixed or missing → pass through (no penalty)
+        """
+        eq1 = ltf_data.get('eq_band1')
+        eq2 = ltf_data.get('eq_band2')
+        
+        if not (eq1 and eq2):
+            # No equilibrium data available yet — pass through silently
+            return {'expanding': True, 'confidence_bonus': 0}
+        
+        both_expanding = eq1 > 1.0 and eq2 > 1.0
+        both_compressing = eq1 < 1.0 and eq2 < 1.0
+        
+        return {
+            'expanding': not both_compressing,
+            'confidence_bonus': 3.0 if both_expanding else 0.0
+        }
     
     def _check_ltf_entry(self, ltf_data: Dict, direction: str) -> Dict:
         """
