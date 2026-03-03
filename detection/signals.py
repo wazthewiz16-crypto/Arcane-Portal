@@ -185,10 +185,10 @@ class MangoSignalDetector:
             # ---------------------------------
 
             # --- Secondary Confirmation: Mango Equilibrium Tracker (LTF required) ---
-            htf_eq = self._check_equilibrium(htf_data)
-            ltf_eq = self._check_equilibrium(ltf_data)
+            htf_eq = self._check_equilibrium(htf_data, htf_direction)
+            ltf_eq = self._check_equilibrium(ltf_data, htf_direction)
             if not ltf_eq['expanding']:
-                continue  # LTF compressing → chop on entry TF → skip
+                continue  # LTF color diverges or is compressing → skip
             # HTF is checked for bonus only (not required)
             # -----------------------------------------------------------------------
             
@@ -309,10 +309,10 @@ class MangoSignalDetector:
                 continue
 
             # --- Secondary Confirmation: Mango Equilibrium Tracker (LTF required) ---
-            htf_eq = self._check_equilibrium(htf_data)
-            ltf_eq = self._check_equilibrium(ltf_data)
+            htf_eq = self._check_equilibrium(htf_data, htf_direction)
+            ltf_eq = self._check_equilibrium(ltf_data, htf_direction)
             if not ltf_eq['expanding']:
-                continue  # LTF compressing → chop on entry TF → skip
+                continue  # LTF color diverges or is compressing → skip
             # HTF is checked for bonus only (not required)
             # -----------------------------------------------------------------------
             
@@ -406,39 +406,90 @@ class MangoSignalDetector:
             else:
                 return 'SHORT'  # Bearish crossover, price consolidating inside ribbon
     
-    def _check_equilibrium(self, ltf_data: Dict) -> Dict:
+    def _check_equilibrium(self, data: Dict, signal_direction: str = None) -> Dict:
         """
         Secondary confirmation using Mango Equilibrium Tracker.
         
-        Compares eqband1/eqband2 spread vs Upper VolB / Lower VolB spread:
-        - EXPANDING: eq bands surround the vol bands (eq_spread > vol_spread)
-          → volatility expanding, trending market → signal confirmed + confidence bonus
-        - COMPRESSING: eq bands squeezed inside vol bands (eq_spread < vol_spread)
-          → volatility compressing, choppy/ranging → signal blocked
+        Infers the band COLOR from expansion state + price position relative to the ribbon:
         
-        Note: when expanding, ONE eq band is above 1.0 and the OTHER is below 1.0.
-        The old "both > 1.0" logic was wrong — expansion means bands spread APART.
+          GREEN  = expanding + bullish ribbon (price above ribbon) → confirms LONG
+          RED    = expanding + bearish ribbon (price below ribbon) → confirms SHORT
+          BLUE   = compressing + bullish ribbon                    → no momentum, risky
+          ORANGE = compressing + bearish ribbon                    → no momentum, risky
+        
+        When signal_direction is provided:
+          - GREEN aligns with LONG  → pass + bonus
+          - RED   aligns with SHORT → pass + bonus
+          - GREEN for SHORT (or RED for LONG) → divergence → BLOCK
+          - BLUE/ORANGE → compressing → BLOCK
+        
+        When eq data is missing → pass through silently (no false negatives).
         """
-        eq1 = ltf_data.get('eq_band1')
-        eq2 = ltf_data.get('eq_band2')
-        upper_vol = ltf_data.get('upper_vol_b')
-        lower_vol = ltf_data.get('lower_vol_b')
+        eq1       = data.get('eq_band1')
+        eq2       = data.get('eq_band2')
+        upper_vol = data.get('upper_vol_b')
+        lower_vol = data.get('lower_vol_b')
         
         if not (eq1 and eq2 and upper_vol and lower_vol):
-            # No equilibrium data available yet — pass through silently
-            return {'expanding': True, 'confidence_bonus': 0}
+            # No equilibrium data yet — pass through silently
+            return {'expanding': True, 'confidence_bonus': 0, 'color': 'UNKNOWN'}
         
-        eq_spread = abs(eq1 - eq2)
+        # --- Expansion state ---
+        eq_spread  = abs(eq1 - eq2)
         vol_spread = abs(upper_vol - lower_vol)
-        
-        # Expanding = eq bands are WIDER than vol bands (surrounding them)
-        # Compressing = eq bands are NARROWER than vol bands (squeezed inside)
         is_expanding = eq_spread >= vol_spread
         
-        return {
-            'expanding': is_expanding,
-            'confidence_bonus': 3.0 if is_expanding else 0.0
-        }
+        # --- Infer direction of expansion from price vs Mango Dynamic ribbon ---
+        price = data.get('close')
+        d1    = data.get('mango_d1')
+        d2    = data.get('mango_d2')
+        
+        ribbon_dir = None
+        if price and d1 and d2:
+            ribbon_top    = max(d1, d2)
+            ribbon_bottom = min(d1, d2)
+            if price > ribbon_top:
+                ribbon_dir = 'LONG'
+            elif price < ribbon_bottom:
+                ribbon_dir = 'SHORT'
+            else:
+                ribbon_dir = 'NEUTRAL'  # price inside ribbon = transitioning
+        
+        # --- Map to color ---
+        if   is_expanding and ribbon_dir == 'LONG':    color = 'GREEN'
+        elif is_expanding and ribbon_dir == 'SHORT':   color = 'RED'
+        elif not is_expanding and ribbon_dir == 'LONG':  color = 'BLUE'
+        elif not is_expanding and ribbon_dir == 'SHORT': color = 'ORANGE'
+        else:                                            color = 'UNKNOWN'
+        
+        # --- No direction context or unknown color → use simple expansion check ---
+        if signal_direction is None or color == 'UNKNOWN':
+            return {
+                'expanding': is_expanding,
+                'confidence_bonus': 3.0 if is_expanding else 0.0,
+                'color': color
+            }
+        
+        # --- Direction-aware color alignment check ---
+        if color == 'GREEN' and signal_direction == 'LONG':
+            # Bullish expansion confirming a LONG — best case
+            return {'expanding': True, 'confidence_bonus': 3.0, 'color': color}
+        
+        elif color == 'RED' and signal_direction == 'SHORT':
+            # Bearish expansion confirming a SHORT — best case
+            return {'expanding': True, 'confidence_bonus': 3.0, 'color': color}
+        
+        elif color == 'GREEN' and signal_direction == 'SHORT':
+            # Bullish expansion vs SHORT signal = divergence → block
+            return {'expanding': False, 'confidence_bonus': 0, 'color': color}
+        
+        elif color == 'RED' and signal_direction == 'LONG':
+            # Bearish expansion vs LONG signal = divergence → block
+            return {'expanding': False, 'confidence_bonus': 0, 'color': color}
+        
+        else:
+            # BLUE / ORANGE — compressing regardless of direction → block
+            return {'expanding': False, 'confidence_bonus': 0, 'color': color}
     
     def _check_ltf_entry(self, ltf_data: Dict, direction: str) -> Dict:
         """
