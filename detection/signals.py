@@ -707,15 +707,12 @@ class MangoSignalDetector:
         if is_scalp:
             # Scalp timeframes (3m, 5m, 15m)
             if timeframe in ['3m', '5m']:
-                rr_ratio = 1.2  # Softened from 1.5
+                rr_ratio = 1.2
             else:  # 15m
-                rr_ratio = 1.6  # Softened from 2.0
+                rr_ratio = 1.75  # Updated from 1.6
         else:
-            # Swing timeframes (4h, 1d, 12h, 4d)
-            if timeframe in ['4h', '12h']:
-                rr_ratio = 2.3  # Bumped from 2.0
-            else:  # 1d, 4d
-                rr_ratio = 2.7  # Bumped from 2.5
+            # Swing timeframes — unified to 2.75R across all swing timeframes
+            rr_ratio = 2.75  # Updated from 2.3 (4h/12h) and 2.7 (1d/4d)
         
         if direction == 'LONG':
             # OPTION B: Use Mango Dynamic Lower Boundary (entry_down) as natural stop
