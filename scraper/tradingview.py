@@ -208,8 +208,8 @@ class TradingViewScraper:
                         EntryDown: findVal('Entry Zone Lower'),
                         // Mango Equilibrium Tracker fields
                         UpperVolB: findVal('Upper VolB'),
-                        LowerVolB: findVal('Lower Vol'),
-                        EqBand1: findVal('eqband1'),
+                        LowerVolB: findVal('Lower VolB'),   // label is 'Lower VolB', not 'Lower Vol'
+                        EqBand1: findVal('eqband '),        // label is 'eqband' (no 1); trailing space prevents matching 'eqband2'
                         EqBand2: findVal('eqband2')
                     };
                     
