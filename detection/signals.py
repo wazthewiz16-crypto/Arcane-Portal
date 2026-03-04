@@ -549,15 +549,15 @@ class MangoSignalDetector:
         zone_size = entry_up - entry_down
         
         if direction == 'LONG':
-            # For longs: Enter in bottom 75% of zone (avoids extreme top edge without being too strict)
-            optimal_entry_top = entry_down + (zone_size * 0.75)
+            # For longs: Enter in bottom 85% of zone
+            optimal_entry_top = entry_down + (zone_size * 0.85)
             if price > optimal_entry_top:
-                return {'valid': False, 'reason': f'Price too high in zone (want bottom 75%)'}
+                return {'valid': False, 'reason': f'Price too high in zone (want bottom 85%)'}
         else:
-            # For shorts: Enter in top 75% of zone (avoids extreme bottom edge without being too strict)
-            optimal_entry_bottom = entry_up - (zone_size * 0.75)
+            # For shorts: Enter in top 85% of zone
+            optimal_entry_bottom = entry_up - (zone_size * 0.85)
             if price < optimal_entry_bottom:
-                return {'valid': False, 'reason': f'Price too low in zone (want top 75%)'}
+                return {'valid': False, 'reason': f'Price too low in zone (want top 85%)'}
         
         # --- END PHASE 1 IMPROVEMENTS ---
 
