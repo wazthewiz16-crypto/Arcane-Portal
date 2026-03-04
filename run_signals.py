@@ -114,9 +114,18 @@ async def run_scraper_and_detect():
                     # Find matching scrape result for HTF (context chart)
                     htf = signal['htf']
                     htf_scrape_match = next((r for r in asset_scrapes if r['timeframe'] == htf), None)
+                    htf_bytes = None
                     if htf_scrape_match and 'screenshot_bytes' in htf_scrape_match:
+                         htf_bytes = htf_scrape_match['screenshot_bytes']
+                    else:
+                         # Fallback: HTF may not be in this scrape cycle, check DB
+                         db_screenshot = datastore.get_screenshot(asset_name, htf)
+                         if db_screenshot and db_screenshot.get('image_data'):
+                             htf_bytes = db_screenshot['image_data']
+                    
+                    if htf_bytes:
                          with tempfile.NamedTemporaryFile(suffix=f"_{htf}.png", delete=False) as tmp:
-                             tmp.write(htf_scrape_match['screenshot_bytes'])
+                             tmp.write(htf_bytes)
                              signal['htf_image_path'] = tmp.name
                          print(f"    📸 Attached HTF screenshot ({htf})")
 
