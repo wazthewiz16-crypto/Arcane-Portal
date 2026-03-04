@@ -41,42 +41,70 @@ class DiscordNotifier:
             # Format the alert message
             message = self._format_signal_alert(signal)
             
-            # Create Discord embed
+            # Create Discord embed for the signal text + LTF chart
             embed = self._create_embed(signal, message)
             
             # Prepare request payload
+            import os, json
             files = {}
-            payload = {"embeds": [embed]}
+            file_handles = []
+            embeds = []
             
-            # Check for screenshot
+            # Check for HTF screenshot (shown first for context)
+            htf_image_path = signal.get('htf_image_path')
+            if htf_image_path and os.path.exists(htf_image_path):
+                htf_filename = os.path.basename(htf_image_path)
+                try:
+                    fh = open(htf_image_path, "rb")
+                    file_handles.append(fh)
+                    files["file1"] = (htf_filename, fh)
+                    htf_tf = signal.get('htf', 'HTF')
+                    htf_embed = {
+                        "title": f"HTF Chart ({htf_tf})",
+                        "image": {"url": f"attachment://{htf_filename}"},
+                        "color": 0x2ECC71 if 'LONG' in signal.get('signal_type', '') else 0xE74C3C
+                    }
+                    embeds.append(htf_embed)
+                except Exception as e:
+                    logger.error(f"Failed to attach HTF image: {e}")
+            
+            # Check for LTF screenshot (entry chart)
             image_path = signal.get('image_path')
-            if image_path:
-                import os
-                if os.path.exists(image_path):
-                    filename = os.path.basename(image_path)
-                    try:
-                        files["file"] = (filename, open(image_path, "rb"))
-                        embed["image"] = {"url": f"attachment://{filename}"}
-                    except Exception as e:
-                        logger.error(f"Failed to attach image: {e}")
+            if image_path and os.path.exists(image_path):
+                ltf_filename = os.path.basename(image_path)
+                try:
+                    fh = open(image_path, "rb")
+                    file_handles.append(fh)
+                    # Use file2 if HTF exists, else file
+                    file_key = "file2" if "file1" in files else "file"
+                    files[file_key] = (ltf_filename, fh)
+                    embed["image"] = {"url": f"attachment://{ltf_filename}"}
+                except Exception as e:
+                    logger.error(f"Failed to attach LTF image: {e}")
 
-            # Send to Discord (using multipart if file exists)
-            import json
+            # Signal text embed goes after HTF chart
+            embeds.append(embed)
+            payload = {"embeds": embeds}
+            
+            # Send to Discord (using multipart if files exist)
             if files:
                 response = requests.post(
                     self.webhook_url,
                     data={"payload_json": json.dumps(payload)},
                     files=files,
-                    timeout=20 # Increased timeout for image upload
+                    timeout=30  # Longer timeout for dual image upload
                 )
-                # Close file handle
-                files["file"][1].close()
             else:
                 response = requests.post(
                     self.webhook_url,
                     json=payload,
                     timeout=10
                 )
+            
+            # Close all file handles
+            for fh in file_handles:
+                try: fh.close()
+                except: pass
             
             if response.status_code in [200, 204]:
                 logger.info(f"Discord alert sent: {signal['asset_name']} {signal['signal_type']}")

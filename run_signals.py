@@ -97,30 +97,40 @@ async def run_scraper_and_detect():
                     # Scraper stored in `screenshots` table (latest).
                     # We should COPY bytes from current scrape -> signal_images table.
                     
-                    # Find matching scrape result for LTF
+                    import tempfile
+                    
+                    # Find matching scrape result for LTF (entry chart)
                     ltf = signal['ltf']
                     scrape_match = next((r for r in asset_scrapes if r['timeframe'] == ltf), None)
                     if scrape_match and 'screenshot_bytes' in scrape_match:
                          # Save to Signal Images
                          datastore.save_signal_image(signal_id, scrape_match['screenshot_bytes'])
-                         # Also set path for Discord (Needs local file?)
-                         # DiscordNotifier expects 'image_path'.
-                         # We need to write to temporary file for Discord.
-                         import tempfile
-                         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                         # Write LTF screenshot to temp file for Discord
+                         with tempfile.NamedTemporaryFile(suffix=f"_{ltf}.png", delete=False) as tmp:
                              tmp.write(scrape_match['screenshot_bytes'])
                              signal['image_path'] = tmp.name
-                         print(f"    📸 Attached screenshot")
+                         print(f"    📸 Attached LTF screenshot ({ltf})")
+                    
+                    # Find matching scrape result for HTF (context chart)
+                    htf = signal['htf']
+                    htf_scrape_match = next((r for r in asset_scrapes if r['timeframe'] == htf), None)
+                    if htf_scrape_match and 'screenshot_bytes' in htf_scrape_match:
+                         with tempfile.NamedTemporaryFile(suffix=f"_{htf}.png", delete=False) as tmp:
+                             tmp.write(htf_scrape_match['screenshot_bytes'])
+                             signal['htf_image_path'] = tmp.name
+                         print(f"    📸 Attached HTF screenshot ({htf})")
 
                     # Alert
                     if notifier.send_signal_alert(signal):
                         datastore.mark_signal_alerted(signal_id)
                         print(f"    🚀 Sent Discord Alert")
                         
-                        # Cleanup temp file
-                        if signal.get('image_path') and os.path.exists(signal['image_path']):
-                            try: os.remove(signal['image_path'])
-                            except: pass
+                        # Cleanup temp files
+                        for path_key in ['image_path', 'htf_image_path']:
+                            path = signal.get(path_key)
+                            if path and os.path.exists(path):
+                                try: os.remove(path)
+                                except: pass
             else:
                 # print(f"  ✓ No new signals for {asset_name}")
                 pass
