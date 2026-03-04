@@ -532,32 +532,23 @@ class MangoSignalDetector:
             if body_ratio < 0.15:  # Body must be at least 15% of range
                 return {'valid': False, 'reason': 'Doji/indecision candle (weak body)'}
         
-        # 3. Momentum Confirmation (Close position) - Softened for volume
-        # Only reject truly weak closes (bottom/top 35% of candle)
+        # 3. Momentum Confirmation (Close position)
+        # Only reject truly terrible closes (bottom/top 20% of candle)
+        # Loosened from 35% because pullback candles naturally close in the lower range
         if candle_range > 0:
             close_position = (price - low) / candle_range
             
-            if direction == 'LONG' and close_position < 0.35:
-                return {'valid': False, 'reason': 'Weak close for long (bottom 35%)'}
+            if direction == 'LONG' and close_position < 0.20:
+                return {'valid': False, 'reason': 'Weak close for long (bottom 20%)'}
                 
-            if direction == 'SHORT' and close_position > 0.65:
-                return {'valid': False, 'reason': 'Weak close for short (top 65%)'}
+            if direction == 'SHORT' and close_position > 0.80:
+                return {'valid': False, 'reason': 'Weak close for short (top 80%)'}
 
-        # 4. Optimal Entry Zone Filter (Bottom 85% for longs, Top 85% for shorts)
-        # Re-enabled at 85% (Very Permissive) to avoid entering at the very worst edge of the zone.
-        # This prevents buying at the absolute top of support or selling at the absolute bottom of resistance.
-        zone_size = entry_up - entry_down
-        
-        if direction == 'LONG':
-            # For longs: Enter in bottom 85% of zone
-            optimal_entry_top = entry_down + (zone_size * 0.85)
-            if price > optimal_entry_top:
-                return {'valid': False, 'reason': f'Price too high in zone (want bottom 85%)'}
-        else:
-            # For shorts: Enter in top 85% of zone
-            optimal_entry_bottom = entry_up - (zone_size * 0.85)
-            if price < optimal_entry_bottom:
-                return {'valid': False, 'reason': f'Price too low in zone (want top 85%)'}
+        # 4. Optimal Entry Zone Filter — REMOVED
+        # If price is inside the Mango Dynamic zone (between entry_down and entry_up),
+        # that is a valid entry by definition. The indicator already defines the boundaries.
+        # Previously this rejected entries in the top 15% of the zone, which was too strict
+        # and killed legitimate pullback entries on trending days.
         
         # --- END PHASE 1 IMPROVEMENTS ---
 
