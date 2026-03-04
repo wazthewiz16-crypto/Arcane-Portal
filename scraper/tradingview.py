@@ -164,12 +164,12 @@ class TradingViewScraper:
                     
                     const findVal = (key, rawChar) => {
                         const safeKey = key.replace(/ /g, '[\\s\\n]+');
-                        const re1 = new RegExp(safeKey + "[:\\s\\n]*([0-9,.]+)", "i");
+                        const re1 = new RegExp(safeKey + "[:\\s\\n\\-]*(-?[0-9,.]+)", "i");
                         let m = txt.match(re1);
                         if (m) return parseFloat(m[1].replace(/,/g, ''));
                         
                         if (rawChar) {
-                            const re2 = new RegExp("\\b" + rawChar + "[:\\s]*([0-9,.]+)", "i");
+                            const re2 = new RegExp("\\b" + rawChar + "[:\\s\\-]*(-?[0-9,.]+)", "i");
                             m = txt.match(re2);
                             if (m) return parseFloat(m[1].replace(/,/g, ''));
                         }
@@ -208,8 +208,13 @@ class TradingViewScraper:
                         EntryDown: findVal('Entry Zone Lower'),
                         // Mango Equilibrium Tracker fields
                         UpperVolB: findVal('Upper VolB'),
-                        LowerVolB: findVal('Lower VolB'),   // label is 'Lower VolB', not 'Lower Vol'
-                        EqBand1: findVal('eqband '),        // label is 'eqband' (no 1); trailing space prevents matching 'eqband2'
+                        LowerVolB: findVal('Lower VolB'),
+                        EqBand1: (() => {
+                            // Match 'eqband' NOT followed by '2' (i.e. exclude eqband2)
+                            const re = /eqband(?!2)[:\s\n\-]*(-?[0-9,.]+)/i;
+                            const m = txt.match(re);
+                            return m ? parseFloat(m[1].replace(/,/g, '')) : null;
+                        })(),
                         EqBand2: findVal('eqband2')
                     };
                     
