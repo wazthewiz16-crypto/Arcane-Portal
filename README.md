@@ -1,25 +1,27 @@
 # Arcane Portal V2
 
-**Mango Dynamic Trading Signal System** - Real-time signal detection with Discord alerts, Streamlit dashboard, and automated self-optimization.
+**Mango Dynamic Trading Signal System** - Real-time signal detection with Discord alerts, Streamlit dashboard, ML-powered market regime detection, and automated self-optimization.
 
 ![Arcane Portal Dashboard](https://i.imgur.com/placehold.png)
 
 ## Features
 
 - 🔮 **Automated Signal Detection**: Swing and scalp signals using precise two-timeframe alignment
-- 🤖 **Auto-Optimizer**: Runs continually to dynamically adjust confidence thresholds up or down based on recent win rates and frequency, preventing dry spells and system death-spirals.
+- 🧠 **Market Regime Detection**: Heuristic-based system that classifies market conditions as TRENDING or RANGING and dynamically adjusts filters — wider breakout capture on trend days, standard parameters when ranging.
+- 🤖 **Auto-Optimizer**: Runs continually to dynamically adjust confidence thresholds up or down based on recent win rates, frequency, and detected market regime, preventing dry spells and system death-spirals.
 - 📊 **Real-time Dashboard**: Beautiful Streamlit interface with live updates, active signals, historical performance, dynamic levels (15m through 4d), and system health metrics.
-- 💬 **Discord Alerts**: Instant notifications with rich embeds (TP/SL/RR details), full TradingView screenshots, and automated optimizer updates.
+- 💬 **Discord Alerts**: Instant notifications with rich embeds (TP/SL/RR details), **dual TradingView screenshots** (HTF context chart + LTF entry chart), and automated optimizer updates.
 - 🎯 **Smart Confidence Scoring**:
   - **Swing Default**: 72% minimum confidence (Auto-adjusts between 60-85%)
   - **Scalp Default**: 75% minimum confidence (Auto-adjusts between 65-88%)
 - 📉 **Balanced Signal Logic**:
   - **Trend Ribbon Reading**: Accurately calculates trend direction even when TV text is null using D1/D2 structural relationship.
-  - **Entry Zone**: Optimized to capture trades within the Mango Dynamic limits.
-  - **Candle Validation**: Minimum 15% body (allows pin-bars), Momentum confirmation (Close within top/bottom 65%).
+  - **Entry Zone**: Price must be within the Mango Dynamic zone boundaries. No additional zone position filter — the indicator defines valid entries.
+  - **Candle Validation**: Minimum 15% body (allows pin-bars), Momentum confirmation (Close within top/bottom 80%).
+  - **Equilibrium Tracker**: Color-aware band filtering — GREEN/RED (expanding) confirms directional conviction, BLUE/ORANGE (compressing) signals caution.
   - **Grandmaster Filter**: Swing trades respect the Daily HTF trend—never fights opposite momentum.
   - **Stop Loss**: Mango Dynamic boundaries + timeframe-specific buffers + enforced minimum risk gaps to avoid micro-wicks.
-  - **Risk/Reward Scaling**: Swings target 2.3R to 2.7R; Scalps target 1.2R to 1.6R.
+  - **Risk/Reward Scaling**: Swings target 2.75R; Scalps target 1.75R.
 - 🌍 **Multi-Asset Support**: Broad market support handling both Crypto and TradFi asset specifics.
 - ☁️ **Cloud Native**: Deployed on Railway using a Neon Serverless PostgreSQL database.
 
@@ -95,6 +97,7 @@ Dashboard will be available at: **http://localhost:8501**
 **LTF Scalps** (Quick trades):
 - 4H HTF → 15m LTF  *(Primary combo)*
 - 1H HTF → 15m LTF  *(Tighter confirmation)*
+- 1D HTF → 15m LTF  *(Wider context)*
 
 > **Active scraped timeframes:** `15m`, `1h`, `4h`, `12h`, `4d` — signals only use what the scraper actually provides.
 
@@ -104,23 +107,38 @@ Dashboard will be available at: **http://localhost:8501**
 3. **Chase Filter**: Rejects signal if price has already moved > 1.5x the zone width past the entry point.
 4. **Candle Quality**:
    - Meaningful body size (≥15% of range, catching hammers/pin-bars).
-   - **Momentum**: Close must be in the correct 65% of the candle (e.g. upper 65% for Longs).
+   - **Momentum**: Close must be in the correct 80% of the candle (e.g. upper 80% for Longs). Only the worst 20% of closes are rejected.
    - **Chop Guard**: Rejects squeezing zones narrower than 0.2%.
+5. **Dynamic Breakout Capture**: On trending days (detected by Market Regime Detector), price can be up to 1% beyond the zone instead of the standard 0.3%.
 
 ### TP/SL Logic
 - **Stop Loss**: Placed just beyond the **Mango Dynamic boundary** with variable percentage buffers to avoid liquidation wicks. Crypto/TradFi have specific minimum SL gaps.
-- **Take Profit**: Calculated based on timeframe-specific RR.
+- **Take Profit**: Calculated based on timeframe-specific RR (Swings: 2.75R, Scalps: 1.75R).
 
 ---
 
 ## System Components & Automation
 
+### Market Regime Detector (`detection/market_regime.py`)
+Classifies the market as **TRENDING** or **RANGING** using 4 heuristic features computed from recent scrape data:
+
+| Feature | What it measures | TRENDING signal |
+|---|---|---|
+| Zone escape ratio | % of assets with price far outside zone | ≥50% |
+| Directional alignment | % of assets with HTF/LTF agreement | ≥60% |
+| Range expansion | Candle ranges vs zone width | ≥1.5x |
+| EQ expansion ratio | % of assets with expanding EQ bands | ≥60% |
+
+When TRENDING is detected, the system automatically widens breakout capture (0.3% → 1%) and lowers confidence thresholds by 3 to capture more directional setups.
+
 ### The Auto-Optimizer (`auto_optimizer.py`)
-A self-healing loop that runs periodically to evaluate the Win Rate and Signal Frequency of the past 24-48 hours. **It evaluates Swings and Scalps independently.**
+A self-healing loop that runs periodically to evaluate the Win Rate, Signal Frequency, and Market Regime of the past 24-48 hours. **It evaluates Swings and Scalps independently.**
 - If a signal type's win rate crashes, it raises its confidence threshold tightly (max 85/88).
 - If win rate is excellent (>65%), it slightly loosens to catch more moves.
 - If signal frequency drops below 0.3/hr, it lowers thresholds (Safety Valve) to ensure the system doesn't starve itself.
-*It updates parameters directly in the database and sends plain-text reports to Discord.* 
+- Detects market regime and adjusts breakout capture accordingly.
+- Blacklists toxic assets (0W/3L+) and enforces "Too Perfect" confidence caps.
+*It updates parameters directly in the database and sends plain-text reports to Discord.*
 
 **Recommended Schedule:** Run 3x daily (e.g. 3am, 9:30am, 5pm EST) via Railway Cron or external scheduler to capture post-session resolutions.
 
@@ -159,13 +177,15 @@ Arcane-Portal/
 │   └── scheduler.py           # Smart timeframe polling
 ├── detection/
 │   ├── datastore.py           # PostgreSQL / SQLite handler
-│   └── signals.py             # Signal detection & filtering logic
+│   ├── signals.py             # Signal detection & filtering logic
+│   └── market_regime.py       # TRENDING/RANGING regime detector
 ├── dashboard/
 │   └── app.py                 # Streamlit UI dashboard
 ├── integrations/
-│   └── discord_notifier.py    # Embeds, Webhooks, Image Uploads
-├── auto_optimizer.py          # Dynamic threshold control script
+│   └── discord_notifier.py    # Embeds, Webhooks, Dual Image Uploads
+├── auto_optimizer.py          # Dynamic threshold + regime control
 ├── monitor_signals.py         # Signal dispatcher and observer
+├── run_signals.py             # Scraper + signal pipeline runner
 ├── clean_signals_db.py        # Database cleanup tool
 ├── analyze_signals.py         # Performance analysis tool
 └── tv_state.json              # TradingView auth state
@@ -173,18 +193,22 @@ Arcane-Portal/
 
 ---
 
-## Support
+## Changelog
 
-**Latest Update:** 2026-03-03
-- **Mango Equilibrium Tracker (Secondary Confirmation)**: Integrated the Mango Equilibrium Tracker as a secondary filter on all signals. The scraper now extracts `eqband1`, `eqband2`, `Upper VolB`, and `Lower VolB` from TradingView. Signals are **blocked** when both eqband1 AND eqband2 are below 1.0 (volatility compressing / choppy market). When both are above 1.0 (expanding / trending), a **+3 confidence bonus** is applied. Missing data passes through silently (no false negatives on older scrapes).
-- **Core Direction Detection Fix (Root Cause)**: Rewrote `_get_htf_direction` to use price position relative to the actual ribbon bands (`max(D1,D2)` / `min(D1,D2)`) instead of just checking which band is on top. Previously, if D2 was slightly above D1 (bearish crossover), the function returned SHORT even when price was visually above the entire ribbon — because it compared to `entry_up` (which extends above the ribbon itself). Now: price above the ribbon = LONG, price below the ribbon = SHORT, price inside the ribbon = neutral tiebreaker.
-- **Swing LTF Ribbon Confirmation (Stricter)**: The 1H LTF ribbon must now **explicitly** confirm direction before a swing signal fires. Previously NEUTRAL (transition state) passed through. Fixed after a DOGE SHORT 4H→1H fired while the 1H ribbon was bullish (price pulling back into zone).
-- **Scalp LTF Ribbon Confirmation**: Same fix applied to scalps — the 15m Mango Dynamic ribbon must explicitly agree with the trade direction. Prevents shorting when the 15m ribbon is still bullish (e.g. ADA SHORT 4H→15m was firing while 15m showed Trend: Bullish).
-- **EST Day-Bookend Full Scans**: The scheduler now performs a full scrape of **all timeframes** (15m, 1h, 4h, 12h, 1d, 4d) on the **first** cron run of the trading day (5:00–5:14 AM EST) and the **last** cron run (10:30–10:59 PM EST). This ensures clean HTF data at market open and a complete snapshot at close, without adding cost to the runs in between.
-- **Advanced Auto-Optimizer Upgrades**: The optimizer now goes beyond just min-confidence tweaking. It will dynamically **widen Stop Losses** if the system is suffering from wick-outs (low WR). It will actively **blacklist toxic assets** (e.g. 0W/3L+) until they recover. And it enforces a **"Too Perfect" Guard (Max Confidence Cap)** protecting you from late entries in exhausted markets.
-- **Railway Cost Optimization**: Restructured the TimeframeScheduler to drop redundant scrapes. 1H and 4H charts no longer scrape on every cron run, reducing hourly browser load/compute time by ~45% and saving significant Railway credits.
-- **Critical Bug Fix**: Scraper was silently storing corrupt `close=1.0` placeholder values into the 1D database table because it didn't wait long enough for the HTF indicators to render. Increased 1D/4D load wait time to 12-15s and retries to 5. Corrupted rows purged.
-- **Improved Entries**: Integrated "Chase Filter" to reject late setups when HTF ribbon lags.
-- **Cleanup**: Removed dead scalp combos (5m, 30m) that were never being scraped.
+**Latest Update:** 2026-03-04
+
+- **Market Regime Detector (NEW)**: Rule-based system that classifies market conditions as TRENDING or RANGING using zone escape ratio, directional alignment, candle range expansion, and EQ band state. On trending days, the system automatically widens breakout capture from 0.3% to 1% and lowers confidence thresholds to catch more directional setups. Future Phase 2 will replace heuristics with an sklearn ML model once sufficient labeled data accumulates (~60+ days).
+- **Dual Discord Screenshots**: Signal alerts now include **two charts** — the HTF context chart and the LTF entry chart. Falls back to DB-stored screenshots when the HTF timeframe wasn't scraped in the current cycle.
+- **Loosened Entry Filters**: Weak close threshold reduced from 35% to 20% (pullback candles naturally close in the lower range — this was killing legitimate dip-buy entries). Zone position filter (TOO_HIGH_85%) removed entirely — if price is within the Mango Dynamic zone, that's a valid entry by definition.
+- **Equilibrium Tracker Scraper Fix**: Fixed regex in `findVal` to handle dashes and negative signs in TradingView labels (e.g. `Lower VolB - 0.956`). Fixed `eqband1` matching to use negative lookahead to avoid matching `eqband2`.
+- **Color-Aware Equilibrium Filtering**: Equilibrium tracker now considers band colors (GREEN=bullish expansion, RED=bearish expansion, BLUE=bullish compression, ORANGE=bearish compression) for directional confirmation.
+- **Updated RR Ratios**: Swing trades unified to 2.75R across all timeframes. Scalp trades updated to 1.75R for 15m.
+- **Confidence Thresholds Lowered**: Swing 85→80, Scalp 87→82 to capture near-miss setups.
+- **Mango Equilibrium Tracker (Secondary Confirmation)**: Integrated the Mango Equilibrium Tracker as a secondary filter on all signals. Signals are blocked when both eqband1 AND eqband2 are below 1.0 (volatility compressing). When both are above 1.0 (expanding), a +3 confidence bonus is applied.
+- **Core Direction Detection Fix**: Rewrote `_get_htf_direction` to use price position relative to the actual ribbon bands instead of comparing to entry zones.
+- **Swing/Scalp LTF Ribbon Confirmation**: The LTF ribbon must explicitly confirm direction before signals fire. NEUTRAL states no longer pass through.
+- **EST Day-Bookend Full Scans**: The scheduler performs full scrapes at market open (5AM EST) and close (10:30PM EST).
+- **Advanced Auto-Optimizer**: Dynamic SL widening, toxic asset blacklisting, and "Too Perfect" confidence caps.
+- **Railway Cost Optimization**: ~45% reduction in hourly browser load via smart scheduling.
 
 **Built with:** Python • Streamlit • Playwright • PostgreSQL • Discord • Numpy/Pandas
