@@ -560,6 +560,9 @@ class MangoSignalDetector:
         is_bounce = False
         valid = False
         
+        # Dynamic breakout capture % (auto-adjusted by Market Regime Detector)
+        breakout_pct = float(self.datastore.get_setting('BREAKOUT_CAPTURE_PCT', 0.003))
+        
         if direction == 'LONG':
             # Check for bounce (Low wicked into zone)
             # Must be above entry_down to be a valid bounce off support (not below it)
@@ -572,9 +575,9 @@ class MangoSignalDetector:
             if in_zone:
                 valid = True
                 
-            # OR if Bounce + Very close to top (Breakout < 0.3%)
-            # This allows capturing the "Break back above" signal without chasing
-            elif is_bounce and price > entry_up and (price - entry_up) / entry_up < 0.003:
+            # OR if Bounce + close to top (dynamic breakout capture)
+            # Widens to 1% on trending days to capture breakouts
+            elif is_bounce and price > entry_up and (price - entry_up) / entry_up < breakout_pct:
                 near_entry = True
                 valid = True
                     
@@ -590,8 +593,8 @@ class MangoSignalDetector:
             if in_zone:
                 valid = True
                 
-            # OR if Bounce + Very close to bottom (Breakout < 0.3%)
-            elif is_bounce and price < entry_down and (entry_down - price) / entry_down < 0.003:
+            # OR if Bounce + close to bottom (dynamic breakout capture)
+            elif is_bounce and price < entry_down and (entry_down - price) / entry_down < breakout_pct:
                 near_entry = True
                 valid = True
         

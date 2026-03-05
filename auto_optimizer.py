@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 from detection.datastore import MangoDataStore
+from detection.market_regime import MarketRegimeDetector
 from analyze_signals import SignalAnalyzer
 from config import settings
 
@@ -37,6 +38,7 @@ class AutoOptimizer:
     def __init__(self):
         self.datastore = MangoDataStore()
         self.analyzer = SignalAnalyzer()
+        self.regime_detector = MarketRegimeDetector(self.datastore)
 
     # ─── Public entry point ───────────────────────────────────────────────────
     def run_optimization(self, hours=24):
@@ -143,6 +145,29 @@ class AutoOptimizer:
             updates['SL_BUFFER_PCT_SWING'] = 0.015
             updates['SL_BUFFER_PCT_SCALP'] = 0.008
 
+        # 3e. Market Regime Detection (TRENDING vs RANGING)
+        regime_result = self.regime_detector.detect_regime(lookback_hours=4)
+        regime = regime_result['regime']
+        regime_conf = regime_result['confidence']
+        regime_dir = regime_result.get('trending_direction', 'MIXED')
+        logger.info(f"Market Regime: {regime} (confidence={regime_conf:.0f}, direction={regime_dir})")
+        logger.info(f"  Details: {regime_result['details']}")
+
+        updates['MARKET_REGIME'] = regime
+
+        if regime == 'TRENDING':
+            # On trending days: widen breakout capture and lower thresholds slightly
+            updates['BREAKOUT_CAPTURE_PCT'] = 0.01  # 1% beyond zone (was 0.3%)
+            # Lower thresholds by 3 to capture more setups (trending = higher conviction)
+            if 'MIN_CONFIDENCE_SWING' not in updates:
+                updates['MIN_CONFIDENCE_SWING'] = max(MIN_SWING, current_swing - 3)
+            if 'MIN_CONFIDENCE_SCALP' not in updates:
+                updates['MIN_CONFIDENCE_SCALP'] = max(MIN_SCALP, current_scalp - 3)
+            logger.info(f"TRENDING regime: widened breakout capture to 1%, lowered thresholds")
+        else:
+            # Ranging: standard settings
+            updates['BREAKOUT_CAPTURE_PCT'] = 0.003  # Default 0.3%
+
         # 4. Global frequency safety valve — fires if PER-TYPE analysis didn't act
         #    (prevents system from starving itself when no closed data exists yet)
         if not updates:
@@ -241,7 +266,14 @@ class AutoOptimizer:
         msg  = "**🤖 ARCANE AUTO-OPTIMIZER**\n"
         msg += f"Analysis Period: Last {hours}h\n"
         msg += f"Overall: WR {metrics['win_rate_pct']}% ({metrics['winners']}W/{metrics['losers']}L) | {metrics['signals_per_hour']} sigs/hr\n"
-        msg += f"↳ Swings: {wr_str(swing_stats)} | Scalps: {wr_str(scalp_stats)}\n\n"
+        msg += f"\u21b3 Swings: {wr_str(swing_stats)} | Scalps: {wr_str(scalp_stats)}\n"
+        
+        # Regime info
+        regime = updates.get('MARKET_REGIME', 'RANGING')
+        if regime == 'TRENDING':
+            msg += "\n\ud83d\udcc8 **Market Regime: TRENDING** (Breakout capture widened)\n\n"
+        else:
+            msg += "\n\ud83d\udcca **Market Regime: RANGING** (Standard filters)\n\n"
         msg += "**⚡ MIN CONFIDENCE THRESHOLDS:**\n"
 
         for k, v in updates.items():
