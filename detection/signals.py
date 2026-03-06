@@ -655,6 +655,16 @@ class MangoSignalDetector:
         if is_bounce:
             confidence += 8
         
+        # Soft Zone Position Penalty
+        # Entries at extreme zone positions get a confidence penalty instead of a hard block.
+        # For longs: entering at the TOP of the zone is risky (less room to TP).
+        # For shorts: entering at the BOTTOM of the zone is risky.
+        # Zone position > 90% or < 10% = -5 confidence.
+        if ltf_price and entry_down and entry_up and (entry_up - entry_down) > 0:
+            zone_pos = (ltf_price - entry_down) / (entry_up - entry_down)
+            if zone_pos > 0.90 or zone_pos < 0.10:
+                confidence -= 5
+                
         # Cap at 100%
         return min(confidence, 100.0)
     

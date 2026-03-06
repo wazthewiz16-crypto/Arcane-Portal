@@ -80,11 +80,39 @@ async def run_scraper_and_detect():
                 
                 # Check active & Alert
                 active_signals = datastore.get_active_signals()
-                active_map = {(s['asset_name'], s['signal_type']) for s in active_signals}
+                # Block by asset+direction (not exact type) to prevent correlated signals
+                # e.g., if BTC SWING_LONG is active, block BTC SCALP_LONG too
+                active_directions = set()
+                for s in active_signals:
+                    direction = 'LONG' if 'LONG' in s['signal_type'] else 'SHORT'
+                    active_directions.add((s['asset_name'], direction))
                 
                 for signal in signals:
-                    if (signal['asset_name'], signal['signal_type']) in active_map:
-                        print(f"    ℹ️  Already Active: {signal['signal_type']}")
+                    sig_direction = 'LONG' if 'LONG' in signal['signal_type'] else 'SHORT'
+                    
+                    # 1. Correlated signal blocker: one signal per asset per direction
+                    if (signal['asset_name'], sig_direction) in active_directions:
+                        print(f"    ℹ️  Blocked (correlated): {signal['asset_name']} already has active {sig_direction}")
+                        continue
+                    
+                    # 2. Cooldown after SL hit: 2 hour max cooldown
+                    from datetime import datetime, timedelta
+                    import pytz
+                    est = pytz.timezone('America/New_York')
+                    now = datetime.now(est)
+                    cooldown_cutoff = (now - timedelta(hours=2)).isoformat()
+                    
+                    with datastore.get_connection() as conn:
+                        recent_sl = datastore._fetch_query(conn, """
+                            SELECT COUNT(*) as cnt FROM signals
+                            WHERE asset_name = %s 
+                              AND signal_type LIKE %s
+                              AND status = 'SL_HIT'
+                              AND updated_at >= %s
+                        """, (signal['asset_name'], f'%{sig_direction}%', cooldown_cutoff))
+                    
+                    if recent_sl and int(recent_sl[0].get('cnt', 0)) > 0:
+                        print(f"    ⏳ Cooldown: {signal['asset_name']} {sig_direction} hit SL within last 2h")
                         continue
                         
                     # Save Signal
