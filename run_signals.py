@@ -26,6 +26,22 @@ async def run_scraper_and_detect():
     print("ARCANE PORTAL V2 - MANUAL SIGNAL GENERATION")
     print("=" * 60)
     
+    # --- WEEKEND FREQUENCY OPTIMIZATION ---
+    from datetime import datetime
+    import pytz
+    
+    est = pytz.timezone('America/New_York')
+    now = datetime.now(est)
+    is_weekend = now.weekday() >= 5  # 5 = Saturday, 6 = Sunday
+    
+    # Railway CRON runs every 15 mins (e.g., :00, :15, :30, :45)
+    # To reduce weekend costs, we skip the :15 and :45 runs, running only every 30 mins
+    if is_weekend and (10 <= now.minute <= 20 or 40 <= now.minute <= 50):
+        print("💤 WEEKEND MODE: Skipping the :15 / :45 execution to reduce compute costs.")
+        print("Will resume scraping at the next hour or half-hour mark.")
+        return
+    # --------------------------------------
+    
     # Initialize components
     datastore = MangoDataStore()
     detector = MangoSignalDetector(datastore)

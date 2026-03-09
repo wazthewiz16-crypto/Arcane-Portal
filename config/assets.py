@@ -27,5 +27,31 @@ ASSETS = [
 ]
 
 def get_active_assets():
-    """Return all enabled assets"""
-    return ASSETS
+    """Return all enabled assets, filtering based on weekend rules"""
+    from datetime import datetime
+    import pytz
+    import copy
+    
+    # Check if it is the weekend (Saturday or Sunday)
+    est = pytz.timezone('America/New_York')
+    now = datetime.now(est)
+    is_weekend = now.weekday() >= 5  # 5 = Saturday, 6 = Sunday
+    
+    active_assets = []
+    
+    for base_asset in ASSETS:
+        # Deep copy so we don't accidentally mutate the global list
+        asset = copy.deepcopy(base_asset)
+        
+        # 1. Skip TradFi completely on weekends (markets are closed)
+        if is_weekend and asset.get('type') == 'tradfi':
+            continue
+            
+        # 2. For Crypto on weekends, reduce timeframes to only 4H, 1H, and 15m 
+        # (Saves ~50% compute cost per coin, while still allowing for 1H Swings and 15m Scalps)
+        if is_weekend and asset.get('type') == 'crypto':
+            asset['timeframes'] = [tf for tf in asset['timeframes'] if tf in ['4h', '1h', '15m']]
+            
+        active_assets.append(asset)
+        
+    return active_assets
