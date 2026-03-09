@@ -11,6 +11,7 @@
 - 🤖 **Auto-Optimizer**: Runs continually to dynamically adjust confidence thresholds up or down based on recent win rates, frequency, and detected market regime, preventing dry spells and system death-spirals.
 - 📊 **Real-time Dashboard**: Beautiful Streamlit interface with live updates, active signals, historical performance, dynamic levels (15m through 4d), and system health metrics.
 - 💬 **Discord Alerts**: Instant notifications with rich embeds (TP/SL/RR details), **dual TradingView screenshots** (HTF context chart + LTF entry chart), and automated optimizer updates.
+- 🕒 **Weekend Optimization Protocol**: Automatically reduces Railway compute costs by 75% on weekends by skipping 15-minute cron intervals, completely blacking out closed TradFi markets, and lowering Crypto scraping to scalp-only timeframes.
 - 🎯 **Smart Confidence Scoring**:
   - **Swing Default**: 72% minimum confidence (Auto-adjusts between 60-85%)
   - **Scalp Default**: 75% minimum confidence (Auto-adjusts between 65-88%)
@@ -195,8 +196,13 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-03-04
+**Latest Update:** 2026-03-09
 
+- **Weekend Optimization Protocol (NEW)**: Slashes Railway server costs by ~75% on Saturdays and Sundays. The system automatically shifts to 30-minute cron intervals, completely removes TradFi assets from the scraping queue (since markets are closed), and reduces Crypto scraping strictly to short-term timeframes (4H, 1H, 15m) to catch quick weekend scalps without burning compute on stationary macro charts.
+- **TradingView Scraper Fixes**: Resolved an issue where the `1D` timeframe was incorrectly sending a symbol search command (`"D"`) to TradingView, resulting in placeholder $1 prices. Fixed layout parameter dropping by forcing explicit keyboard symbol entry for each asset.
+- **Correlated Signal Blocker**: Added strict active signal checks to prevent identical asset/direction pairs from spamming Discord (e.g., blocking a 15m BTC Long if a 1H BTC Long is already active).
+- **Stop-Loss Cooldown**: Enforces a mandatory 2-hour timeout period after an asset hits a Stop-Loss before allowing a new signal in that exact same direction.
+- **Extreme Zone Penalties**: Added a `-5%` confidence penalty if price enters at the extreme outer edges (top 90% or bottom 10%) of the Mango Dynamic zone to protect against overextended "chase" entries.
 - **Market Regime Detector (NEW)**: Rule-based system that classifies market conditions as TRENDING or RANGING using zone escape ratio, directional alignment, candle range expansion, and EQ band state. On trending days, the system automatically widens breakout capture from 0.3% to 1% and lowers confidence thresholds to catch more directional setups. Future Phase 2 will replace heuristics with an sklearn ML model once sufficient labeled data accumulates (~60+ days).
 - **Dual Discord Screenshots**: Signal alerts now include **two charts** — the HTF context chart and the LTF entry chart. Falls back to DB-stored screenshots when the HTF timeframe wasn't scraped in the current cycle.
 - **Loosened Entry Filters**: Weak close threshold reduced from 35% to 20% (pullback candles naturally close in the lower range — this was killing legitimate dip-buy entries). Zone position filter (TOO_HIGH_85%) removed entirely — if price is within the Mango Dynamic zone, that's a valid entry by definition.
