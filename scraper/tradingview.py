@@ -74,6 +74,20 @@ class TradingViewScraper:
                     await asyncio.sleep(8)
             except Exception:
                 pass # Continue if check fails
+                
+            # FORCE SYMBOL CHANGE VIA KEYBOARD
+            # Custom layouts often ignore the ?symbol= parameter in the URL.
+            # Typing the symbol directly (starting with a letter) opens Symbol Search.
+            try:
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.5)
+                # Type the full exchange:symbol string
+                await page.keyboard.type(symbol, delay=50) # Small delay to ensure letters register
+                await asyncio.sleep(1)
+                await page.keyboard.press("Enter")
+                await asyncio.sleep(3) # Wait for new asset to render
+            except Exception as e:
+                logger.warning(f"Failed to force keyboard symbol change for {symbol}: {e}")
             
             # Ensure Data Window open
             try:
@@ -93,15 +107,18 @@ class TradingViewScraper:
                 "1h": "1H",
                 "4h": "4H",
                 "12h": "12H",
-                "1d": "D",
+                "1d": "1D",    # Was "D", but typing a letter first triggers Symbol Search!
                 "4d": "4D"
             }
             
             tv_timeframe = timeframe_map.get(timeframe, timeframe)
             
-            # Switch timeframe
-            await page.keyboard.type(tv_timeframe)
+            # Switch timeframe via keyboard
+            # Numbers open the "Change Interval" dialog.
+            await page.keyboard.type(tv_timeframe, delay=50)
+            await asyncio.sleep(0.5)
             await page.keyboard.press("Enter")
+            await asyncio.sleep(1)
             
             # Join 'data' and 'screenshots' path
             import os
