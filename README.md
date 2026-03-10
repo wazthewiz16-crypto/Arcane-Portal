@@ -24,6 +24,12 @@
   - **Stop Loss**: Mango Dynamic boundaries + timeframe-specific buffers + enforced minimum risk gaps to avoid micro-wicks.
   - **Risk/Reward Scaling**: Swings target 2.75R; Scalps target 1.75R.
 - 🌍 **Multi-Asset Support**: Broad market support handling both Crypto and TradFi asset specifics.
+- ₿ **BTC Macro Context Filter**: All altcoin signals are validated against the live BTC price trend and BTC Dominance (BTC.D) direction before firing. The system implements the full Bitcoin Dominance Cycle:
+  - **ALT_DUMP** (BTC.D ↑ + BTC ↓): Altcoin LONG signals blocked entirely; SHORT signals get +7 confidence bonus.
+  - **ALT_BEARISH** (BTC.D ↑ + BTC ↑): Altcoin LONG signals blocked; SHORT signals get +3 confidence bonus.
+  - **ALT_SEASON** (BTC.D ↓ + BTC ↑): Altcoin SHORT signals blocked; LONG signals get +5 confidence bonus.
+  - **ALT_NEUTRAL / ALT_SLIGHTLY_BULLISH**: Small confidence adjustments with no hard blocks.
+  - BTC itself and all TradFi assets are exempt from this filter.
 - ☁️ **Cloud Native**: Deployed on Railway using a Neon Serverless PostgreSQL database.
 
 ---
@@ -198,6 +204,7 @@ Arcane-Portal/
 
 **Latest Update:** 2026-03-09
 
+- **BTC Macro Context Filter (NEW)**: Altcoin signals are now filtered and adjusted based on the live Bitcoin price direction (4H) and Bitcoin Dominance (BTC.D 4H). Implements the full Dominance Cycle: `ALT_DUMP` (BTC.D ↑ + BTC ↓) hard-blocks alt LONGs and boosts alt SHORTs by +7; `ALT_BEARISH` (BTC.D ↑ + BTC ↑) blocks alt LONGs and boosts SHORTs by +3; `ALT_SEASON` (BTC.D ↓ + BTC ↑) blocks alt SHORTs and boosts LONGs by +5. BTC.D is now scraped as a context-only asset (`CRYPTOCAP:BTC.D`) on every run. BTC and all TradFi assets are exempt from the filter.
 - **Weekend Optimization Protocol (NEW)**: Slashes Railway server costs by ~75% on Saturdays and Sundays. The system automatically shifts to 30-minute cron intervals, completely removes TradFi assets from the scraping queue (since markets are closed), and reduces Crypto scraping strictly to short-term timeframes (4H, 1H, 15m) to catch quick weekend scalps without burning compute on stationary macro charts.
 - **TradingView Scraper Fixes**: Resolved an issue where the `1D` timeframe was incorrectly sending a symbol search command (`"D"`) to TradingView, resulting in placeholder $1 prices. Fixed layout parameter dropping by forcing explicit keyboard symbol entry for each asset.
 - **Correlated Signal Blocker**: Added strict active signal checks to prevent identical asset/direction pairs from spamming Discord (e.g., blocking a 15m BTC Long if a 1H BTC Long is already active).
