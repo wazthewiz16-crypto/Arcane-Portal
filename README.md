@@ -22,7 +22,10 @@
   - **Equilibrium Tracker**: Color-aware band filtering — GREEN/RED (expanding) confirms directional conviction, BLUE/ORANGE (compressing) signals caution.
   - **Grandmaster Filter**: Swing trades respect the Daily HTF trend—never fights opposite momentum.
   - **Stop Loss**: Mango Dynamic boundaries + timeframe-specific buffers + enforced minimum risk gaps to avoid micro-wicks.
+  - **Partial Take Profit (1R → Breakeven)**: When price moves +1R in your favour the system marks partial TP hit, moves the stop-loss to the entry price (breakeven) and lets the remaining position ride to the full target. Losing trades that reached +1R before reversing now close as `BREAKEVEN` instead of `SL_HIT`.
   - **Risk/Reward Scaling**: Swings target 2.75R; Scalps target 1.75R.
+- 🚫 **Correlated Positions Cap**: Prevents stacking more than 2 crypto positions in the same direction simultaneously (e.g. BTC + ETH + SOL + ARB all SHORT at once). When the cap is reached new signals in that direction are suppressed until an existing one closes, capping portfolio-wide correlated risk.
+- 📐 **Minimum SL Floor for Crypto Scalps**: Crypto scalp stop-losses are now enforced to a minimum of 1.8% from entry (up from 1.5%) to avoid being wick-hunted on volatile 15m candles.
 - 🌍 **Multi-Asset Support**: Broad market support handling both Crypto and TradFi asset specifics.
 - ₿ **BTC Macro Context Filter**: All altcoin signals are validated against the live BTC price trend and BTC Dominance (BTC.D) direction before firing. The system implements the full Bitcoin Dominance Cycle:
   - **ALT_DUMP** (BTC.D ↑ + BTC ↓): Altcoin LONG signals blocked entirely; SHORT signals get +7 confidence bonus.
@@ -202,8 +205,11 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-03-09
+**Latest Update:** 2026-03-10
 
+- **Partial Take Profit at 1R + Breakeven SL (NEW)**: Every signal now stores a `partial_tp` level exactly 1R from entry. When price hits this level the monitor automatically moves the stop-loss to the entry price. If the trade subsequently reverses back to entry it is recorded as `BREAKEVEN` instead of `SL_HIT`, materially reducing loss magnitude. Trades that continue to the full target remain `TP_HIT` as usual.
+- **Correlated Positions Cap (NEW)**: A global cap of **2 active crypto positions per direction** is now enforced at signal generation time. If ≥2 crypto SHORTs (or LONGs) are already open, any new signal in that direction is suppressed — preventing the scenario where BTC, ETH, SOL and ARB all fire SHORT simultaneously and a single BTC bounce wipes every position at once.
+- **Crypto Scalp SL Floor raised to 1.8%**: The minimum stop-loss distance for crypto scalp trades has been increased from 1.5% to 1.8% to give positions enough breathing room to survive initial wicks on volatile 15m candles.
 - **BTC Macro Context Filter (NEW)**: Altcoin signals are now filtered and adjusted based on the live Bitcoin price direction (4H) and Bitcoin Dominance (BTC.D 4H). Implements the full Dominance Cycle: `ALT_DUMP` (BTC.D ↑ + BTC ↓) hard-blocks alt LONGs and boosts alt SHORTs by +7; `ALT_BEARISH` (BTC.D ↑ + BTC ↑) blocks alt LONGs and boosts SHORTs by +3; `ALT_SEASON` (BTC.D ↓ + BTC ↑) blocks alt SHORTs and boosts LONGs by +5. BTC.D is now scraped as a context-only asset (`CRYPTOCAP:BTC.D`) on every run. BTC and all TradFi assets are exempt from the filter.
 - **Weekend Optimization Protocol (NEW)**: Slashes Railway server costs by ~75% on Saturdays and Sundays. The system automatically shifts to 30-minute cron intervals, completely removes TradFi assets from the scraping queue (since markets are closed), and reduces Crypto scraping strictly to short-term timeframes (4H, 1H, 15m) to catch quick weekend scalps without burning compute on stationary macro charts.
 - **TradingView Scraper Fixes**: Resolved an issue where the `1D` timeframe was incorrectly sending a symbol search command (`"D"`) to TradingView, resulting in placeholder $1 prices. Fixed layout parameter dropping by forcing explicit keyboard symbol entry for each asset.
