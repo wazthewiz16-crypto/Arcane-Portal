@@ -67,6 +67,16 @@ class MangoSignalDetector:
                         f"(BTC={btc_context['btc_dir']}, BTC.D={btc_context['btcd_dir']})")
         # ────────────────────────────────────────────────────────────────────
 
+        # ── Correlated Positions Cap ────────────────────────────────────────────
+        # Prevent stacking too many correlated crypto trades in the same direction.
+        # e.g. BTC, ETH, SOL, ARB all SHORT simultaneously — a single BTC bounce
+        # wipes every position at once. Cap at 2 per direction.
+        MAX_CRYPTO_SAME_DIRECTION = 2
+        active_sigs = self.datastore.get_active_signals()
+        active_crypto_longs  = sum(1 for s in active_sigs if s.get('asset_type') == 'crypto' and 'LONG'  in s['signal_type'])
+        active_crypto_shorts = sum(1 for s in active_sigs if s.get('asset_type') == 'crypto' and 'SHORT' in s['signal_type'])
+        # ────────────────────────────────────────────────────────────────────
+
         for name, timeframes in assets_data.items():
             if name.upper() in blacklist:
                 logger.info(f"Skipping {name} — temporarily blacklisted by auto-optimizer.")
@@ -83,11 +93,24 @@ class MangoSignalDetector:
                 swing_signal = self._apply_btc_context_to_altcoin(name, swing_signal, btc_context)
                 if swing_signal is None:
                     continue  # Blocked by BTC macro context
-                direction = 'LONG' if 'LONG' in swing_signal['signal_type'] else 'SHORT'
+                # ── Correlated positions cap check ──
+                is_long_signal = 'LONG' in swing_signal['signal_type']
+                if swing_signal.get('asset_type') == 'crypto':
+                    if is_long_signal and active_crypto_longs >= MAX_CRYPTO_SAME_DIRECTION:
+                        logger.info(f"🚫 Correlated cap: skipping {name} LONG (already {active_crypto_longs} active crypto longs)")
+                        continue
+                    if not is_long_signal and active_crypto_shorts >= MAX_CRYPTO_SAME_DIRECTION:
+                        logger.info(f"🚫 Correlated cap: skipping {name} SHORT (already {active_crypto_shorts} active crypto shorts)")
+                        continue
+                direction = 'LONG' if is_long_signal else 'SHORT'
                 key = (name, 'SWING', direction)
                 if key not in seen_this_run:
                     seen_this_run.add(key)
                     signals.append(swing_signal)
+                    # Update running count so subsequent assets in the same batch respect the cap
+                    if swing_signal.get('asset_type') == 'crypto':
+                        if is_long_signal: active_crypto_longs += 1
+                        else:              active_crypto_shorts += 1
                 else:
                     logger.debug(f"Dedup: suppressed duplicate {swing_signal['signal_type']} for {name} (already queued this run)")
             
@@ -98,11 +121,23 @@ class MangoSignalDetector:
                 scalp_signal = self._apply_btc_context_to_altcoin(name, scalp_signal, btc_context)
                 if scalp_signal is None:
                     continue  # Blocked by BTC macro context
-                direction = 'LONG' if 'LONG' in scalp_signal['signal_type'] else 'SHORT'
+                # ── Correlated positions cap check ──
+                is_long_signal = 'LONG' in scalp_signal['signal_type']
+                if scalp_signal.get('asset_type') == 'crypto':
+                    if is_long_signal and active_crypto_longs >= MAX_CRYPTO_SAME_DIRECTION:
+                        logger.info(f"🚫 Correlated cap: skipping {name} scalp LONG (already {active_crypto_longs} active crypto longs)")
+                        continue
+                    if not is_long_signal and active_crypto_shorts >= MAX_CRYPTO_SAME_DIRECTION:
+                        logger.info(f"🚫 Correlated cap: skipping {name} scalp SHORT (already {active_crypto_shorts} active crypto shorts)")
+                        continue
+                direction = 'LONG' if is_long_signal else 'SHORT'
                 key = (name, 'SCALP', direction)
                 if key not in seen_this_run:
                     seen_this_run.add(key)
                     signals.append(scalp_signal)
+                    if scalp_signal.get('asset_type') == 'crypto':
+                        if is_long_signal: active_crypto_longs += 1
+                        else:              active_crypto_shorts += 1
                 else:
                     logger.debug(f"Dedup: suppressed duplicate {scalp_signal['signal_type']} for {name} (already queued this run)")
         
@@ -375,6 +410,7 @@ class MangoSignalDetector:
                 'confidence': confidence,
                 'entry_price': ltf_data['close'],
                 'take_profit': tp_sl['take_profit'],
+                'partial_tp': tp_sl['partial_tp'],
                 'stop_loss': tp_sl['stop_loss'],
                 'rr_ratio': tp_sl['rr_ratio'],
                 'entry_zone_low': ltf_data['entry_down'],
@@ -499,6 +535,7 @@ class MangoSignalDetector:
                 'confidence': confidence,
                 'entry_price': ltf_data['close'],
                 'take_profit': tp_sl['take_profit'],
+                'partial_tp': tp_sl['partial_tp'],
                 'stop_loss': tp_sl['stop_loss'],
                 'rr_ratio': tp_sl['rr_ratio'],
                 'entry_zone_low': ltf_data['entry_down'],
@@ -851,7 +888,10 @@ class MangoSignalDetector:
         
         # Define a minimum SL distance to avoid micro-wicks stopping us out instantly
         if is_scalp:
-            MIN_RISK_PCT = 0.015
+            if asset_type == 'crypto':
+                MIN_RISK_PCT = 0.018  # 1.8% min SL for crypto scalps (raised from 1.5% to survive wicks)
+            else:
+                MIN_RISK_PCT = 0.015  # 1.5% min SL for tradfi scalps
         else:
             if asset_type == 'tradfi':
                 MIN_RISK_PCT = 0.020  # 2% SL for tradfi swings
@@ -888,6 +928,8 @@ class MangoSignalDetector:
             
             # TP based on timeframe-specific RR ratio
             take_profit = entry_price + (risk * rr_ratio)
+            # Partial TP at exactly +1R (close 50%, move SL to breakeven)
+            partial_tp = entry_price + risk
             
         else:
             # OPTION B: Use Mango Dynamic Upper Boundary (entry_up) as natural stop
@@ -908,12 +950,15 @@ class MangoSignalDetector:
             
             # TP based on timeframe-specific RR ratio
             take_profit = entry_price - (risk * rr_ratio)
+            # Partial TP at exactly +1R (close 50%, move SL to breakeven)
+            partial_tp = entry_price - risk
         
         # Calculate actual RR ratio
         actual_rr = abs(take_profit - entry_price) / risk
         
         return {
             'take_profit': round(take_profit, 2 if entry_price > 1 else 6),
+            'partial_tp': round(partial_tp, 2 if entry_price > 1 else 6),
             'stop_loss': round(stop_loss, 2 if entry_price > 1 else 6),
             'rr_ratio': round(actual_rr, 1)
         }

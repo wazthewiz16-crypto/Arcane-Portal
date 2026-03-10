@@ -1,9 +1,12 @@
 """SQLite/PostgreSQL datastore for scraper results"""
 import sqlite3
 import os
+import logging
 from pathlib import Path
 from datetime import datetime
 from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
 
 # Check if we should use PostgreSQL (Railway) or SQLite (local)
 DATABASE_URL = os.getenv('DATABASE_URL')
@@ -83,6 +86,7 @@ class MangoDataStore:
                         confidence REAL NOT NULL,
                         entry_price REAL NOT NULL,
                         take_profit REAL,
+                        partial_tp REAL,
                         stop_loss REAL,
                         rr_ratio REAL,
                         entry_zone_low REAL,
@@ -93,9 +97,15 @@ class MangoDataStore:
                         entry_time TEXT NOT NULL,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
-                        alerted_discord BOOLEAN DEFAULT FALSE
+                        alerted_discord BOOLEAN DEFAULT FALSE,
+                        partial_tp_hit BOOLEAN DEFAULT FALSE
                     )
                 """)
+                # Migrations: add new columns if they don't exist on old DBs
+                try: self._execute_query(conn, "ALTER TABLE signals ADD COLUMN IF NOT EXISTS partial_tp REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE signals ADD COLUMN IF NOT EXISTS partial_tp_hit BOOLEAN DEFAULT FALSE")
+                except: pass
                 
                 self._execute_query(conn, """
                     CREATE INDEX IF NOT EXISTS idx_signals_lookup 
@@ -187,6 +197,7 @@ class MangoDataStore:
                         confidence REAL NOT NULL,
                         entry_price REAL NOT NULL,
                         take_profit REAL,
+                        partial_tp REAL,
                         stop_loss REAL,
                         rr_ratio REAL,
                         entry_zone_low REAL,
@@ -197,9 +208,15 @@ class MangoDataStore:
                         entry_time TEXT NOT NULL,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
-                        alerted_discord BOOLEAN DEFAULT 0
+                        alerted_discord BOOLEAN DEFAULT 0,
+                        partial_tp_hit BOOLEAN DEFAULT 0
                     )
                 """)
+                # Migrations
+                try: self._execute_query(conn, "ALTER TABLE signals ADD COLUMN partial_tp REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE signals ADD COLUMN partial_tp_hit BOOLEAN DEFAULT 0")
+                except: pass
                 
                 self._execute_query(conn, """
                     CREATE INDEX IF NOT EXISTS idx_signals_lookup 
@@ -429,11 +446,11 @@ class MangoDataStore:
             self._execute_query(conn, """
                 INSERT INTO signals (
                     asset_name, asset_type, signal_type, confidence,
-                    entry_price, take_profit, stop_loss, rr_ratio,
+                    entry_price, take_profit, partial_tp, stop_loss, rr_ratio,
                     entry_zone_low, entry_zone_high,
                     htf, ltf, status, entry_time,
                     created_at, updated_at, alerted_discord
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 signal_data['asset_name'],
                 signal_data['asset_type'],
@@ -441,6 +458,7 @@ class MangoDataStore:
                 signal_data['confidence'],
                 signal_data['entry_price'],
                 signal_data.get('take_profit'),
+                signal_data.get('partial_tp'),
                 signal_data.get('stop_loss'),
                 signal_data.get('rr_ratio'),
                 signal_data.get('entry_zone_low'),
@@ -502,24 +520,33 @@ class MangoDataStore:
             """, (datetime.utcnow().isoformat(), signal_id))
     
     def update_signal_statuses(self):
-        """Update all active signals based on current prices"""
+        """Update all active signals based on current prices.
+        
+        Two-stage exit logic:
+          Stage 1: Price hits partial_tp (+1R) → mark partial_tp_hit, move SL to entry (breakeven).
+          Stage 2a: Price hits full take_profit → TP_HIT.
+          Stage 2b: Price hits stop_loss (now at entry after stage 1) → BREAKEVEN or SL_HIT.
+        """
         from datetime import datetime
         
         with self.get_connection() as conn:
-            # Get all active signals
+            # Get all active signals with partial_tp fields
             active_signals = self._fetch_query(conn, """
-                SELECT id, asset_name, signal_type, entry_price, take_profit, stop_loss
+                SELECT id, asset_name, signal_type, entry_price, take_profit,
+                       partial_tp, stop_loss, partial_tp_hit
                 FROM signals
                 WHERE status = 'ACTIVE'
             """)
             
             for signal in active_signals:
-                signal_id = signal['id']
-                asset_name = signal['asset_name']
-                signal_type = signal['signal_type']
-                entry_price = signal['entry_price']
-                take_profit = signal['take_profit']
-                stop_loss = signal['stop_loss']
+                signal_id    = signal['id']
+                asset_name   = signal['asset_name']
+                signal_type  = signal['signal_type']
+                entry_price  = signal['entry_price']
+                take_profit  = signal['take_profit']
+                partial_tp   = signal.get('partial_tp')
+                stop_loss    = signal['stop_loss']
+                partial_hit  = signal.get('partial_tp_hit', False)
                 
                 # Get latest price for this asset
                 latest_prices = self._fetch_query(conn, """
@@ -533,36 +560,54 @@ class MangoDataStore:
                     continue
                 
                 current_price = latest_prices[0]['close']
-                
-                # Check if TP or SL was hit
                 is_long = 'LONG' in signal_type
+                now = datetime.utcnow().isoformat()
                 
                 if is_long:
+                    # ── Stage 1: Partial TP hit → move SL to breakeven ──
+                    if partial_tp and not partial_hit and current_price >= partial_tp:
+                        self._execute_query(conn, """
+                            UPDATE signals
+                            SET partial_tp_hit = TRUE, stop_loss = ?, updated_at = ?
+                            WHERE id = ?
+                        """, (entry_price, now, signal_id))
+                        logger.info(f"Partial TP hit for {asset_name} LONG — SL moved to breakeven ({entry_price})")
+                        stop_loss = entry_price  # Use updated SL for same-cycle check
+                        partial_hit = True
+
+                    # ── Stage 2: Full TP or SL ──
                     if current_price >= take_profit:
                         self._execute_query(conn, """
-                            UPDATE signals
-                            SET status = 'TP_HIT', updated_at = ?
-                            WHERE id = ?
-                        """, (datetime.utcnow().isoformat(), signal_id))
+                            UPDATE signals SET status = 'TP_HIT', updated_at = ? WHERE id = ?
+                        """, (now, signal_id))
                     elif current_price <= stop_loss:
+                        status = 'BREAKEVEN' if partial_hit else 'SL_HIT'
+                        self._execute_query(conn, """
+                            UPDATE signals SET status = ?, updated_at = ? WHERE id = ?
+                        """, (status, now, signal_id))
+
+                else:  # SHORT
+                    # ── Stage 1: Partial TP hit → move SL to breakeven ──
+                    if partial_tp and not partial_hit and current_price <= partial_tp:
                         self._execute_query(conn, """
                             UPDATE signals
-                            SET status = 'SL_HIT', updated_at = ?
+                            SET partial_tp_hit = TRUE, stop_loss = ?, updated_at = ?
                             WHERE id = ?
-                        """, (datetime.utcnow().isoformat(), signal_id))
-                else:  # SHORT
+                        """, (entry_price, now, signal_id))
+                        logger.info(f"Partial TP hit for {asset_name} SHORT — SL moved to breakeven ({entry_price})")
+                        stop_loss = entry_price
+                        partial_hit = True
+
+                    # ── Stage 2: Full TP or SL ──
                     if current_price <= take_profit:
                         self._execute_query(conn, """
-                            UPDATE signals
-                            SET status = 'TP_HIT', updated_at = ?
-                            WHERE id = ?
-                        """, (datetime.utcnow().isoformat(), signal_id))
+                            UPDATE signals SET status = 'TP_HIT', updated_at = ? WHERE id = ?
+                        """, (now, signal_id))
                     elif current_price >= stop_loss:
+                        status = 'BREAKEVEN' if partial_hit else 'SL_HIT'
                         self._execute_query(conn, """
-                            UPDATE signals
-                            SET status = 'SL_HIT', updated_at = ?
-                            WHERE id = ?
-                        """, (datetime.utcnow().isoformat(), signal_id))
+                            UPDATE signals SET status = ?, updated_at = ? WHERE id = ?
+                        """, (status, now, signal_id))
     
     def get_history(self, name, timeframe, limit=10):
         """Get historical data for an asset/timeframe"""
