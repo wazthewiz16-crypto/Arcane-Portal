@@ -26,8 +26,15 @@ ASSETS = [
     {"symbol": "OANDA:XAGUSD", "name": "SILVER", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
 ]
 
+# Context-only assets: scraped for macro filters but never generate trade signals themselves.
+# BTC.D tracks Bitcoin Dominance — essential for understanding altcoin direction.
+CONTEXT_ASSETS = [
+    {"symbol": "CRYPTOCAP:BTC.D", "name": "BTCD", "type": "context", "timeframes": ["4h", "1h"]},
+]
+
 def get_active_assets():
-    """Return all enabled assets, filtering based on weekend rules"""
+    """Return all enabled assets, filtering based on weekend rules.
+    Context assets (e.g., BTC.D) are always included regardless of the day."""
     from datetime import datetime
     import pytz
     import copy
@@ -53,5 +60,9 @@ def get_active_assets():
             asset['timeframes'] = [tf for tf in asset['timeframes'] if tf in ['4h', '1h', '15m']]
             
         active_assets.append(asset)
+    
+    # Always include context assets (weekday and weekend)
+    for ctx_asset in CONTEXT_ASSETS:
+        active_assets.append(copy.deepcopy(ctx_asset))
         
     return active_assets

@@ -58,14 +58,31 @@ class MangoSignalDetector:
         # e.g. BTC LONG via 1H->15m AND BTC LONG via 4H->15m = same trade, one signal
         seen_this_run = set()
 
+        # ── BTC Macro Context: precompute once per run ──────────────────────
+        # Reads latest BTC + BTC.D data from DB to classify the current crypto
+        # macro environment. This is then used to filter/adjust altcoin signals.
+        btc_context = self._get_btc_macro_context(assets_data)
+        if btc_context['verdict'] != 'NEUTRAL':
+            logger.info(f"📊 BTC Macro Context: {btc_context['verdict']} "
+                        f"(BTC={btc_context['btc_dir']}, BTC.D={btc_context['btcd_dir']})")
+        # ────────────────────────────────────────────────────────────────────
+
         for name, timeframes in assets_data.items():
             if name.upper() in blacklist:
                 logger.info(f"Skipping {name} — temporarily blacklisted by auto-optimizer.")
+                continue
+            
+            # Skip context-only assets — they are macro inputs, not trade targets
+            if name.upper() in ('BTCD',):
                 continue
 
             # Swing signals (HTF -> LTF)
             swing_signal = self._detect_swing_signal(name, timeframes, sl_buffer_swing)
             if swing_signal and min_swing <= swing_signal['confidence'] <= max_swing:
+                # Apply BTC macro context adjustment for crypto altcoins
+                swing_signal = self._apply_btc_context_to_altcoin(name, swing_signal, btc_context)
+                if swing_signal is None:
+                    continue  # Blocked by BTC macro context
                 direction = 'LONG' if 'LONG' in swing_signal['signal_type'] else 'SHORT'
                 key = (name, 'SWING', direction)
                 if key not in seen_this_run:
@@ -77,6 +94,10 @@ class MangoSignalDetector:
             # Scalp signals (scalp_htf -> scalp_ltf)
             scalp_signal = self._detect_scalp_signal(name, timeframes, sl_buffer_scalp)
             if scalp_signal and min_scalp <= scalp_signal['confidence'] <= max_scalp:
+                # Apply BTC macro context adjustment for crypto altcoins
+                scalp_signal = self._apply_btc_context_to_altcoin(name, scalp_signal, btc_context)
+                if scalp_signal is None:
+                    continue  # Blocked by BTC macro context
                 direction = 'LONG' if 'LONG' in scalp_signal['signal_type'] else 'SHORT'
                 key = (name, 'SCALP', direction)
                 if key not in seen_this_run:
@@ -89,6 +110,136 @@ class MangoSignalDetector:
         signals.sort(key=lambda x: x['confidence'], reverse=True)
         return signals
     
+    def _get_btc_macro_context(self, assets_data: Dict) -> Dict:
+        """
+        Analyse the current BTC price trend and BTC Dominance trend from the
+        in-memory scrape data to produce a macro verdict for altcoin filtering.
+
+        Dominance Cycle (from chart reference):
+          BTC.D ↑ + BTC ↑  → Alts fall (money flowing INTO BTC)
+          BTC.D ↑ + BTC ↓  → Alts DUMP hard (risk-off, everyone out)
+          BTC.D ↑ + BTC ~  → Alts stable / accumulation phase
+          BTC.D ↓ + BTC ↑  → Alts MOON  (alt season — money rotating out of BTC)
+          BTC.D ↓ + BTC ↓  → Alts stable
+          BTC.D ↓ + BTC ~  → Alts slightly bullish
+
+        Returns a dict:
+          verdict  : 'ALT_BEARISH' | 'ALT_DUMP' | 'ALT_NEUTRAL' | 'ALT_SEASON' | 'NEUTRAL'
+          btc_dir  : 'LONG' | 'SHORT' | 'NEUTRAL'
+          btcd_dir : 'UP'   | 'DOWN'  | 'NEUTRAL'
+          confidence_modifier : int (negative = penalty, positive = bonus)
+        """
+        # ── Get BTC 4H direction ──
+        btc_tf = assets_data.get('BTC', {})
+        btc_4h = btc_tf.get('4h') or btc_tf.get('1h')
+        btc_dir = self._get_htf_direction(btc_4h) if btc_4h else None
+        if btc_dir is None:
+            btc_dir = 'NEUTRAL'
+
+        # ── Get BTC.D 4H direction ──
+        btcd_tf = assets_data.get('BTCD', {})
+        btcd_4h = btcd_tf.get('4h') or btcd_tf.get('1h')
+        btcd_dir_raw = self._get_htf_direction(btcd_4h) if btcd_4h else None
+        # Translate LONG/SHORT to UP/DOWN for readability
+        btcd_dir = 'UP' if btcd_dir_raw == 'LONG' else ('DOWN' if btcd_dir_raw == 'SHORT' else 'NEUTRAL')
+
+        # ── Apply dominance cycle table ──
+        if btcd_dir == 'UP' and btc_dir == 'LONG':
+            # Money flowing INTO BTC — alts underperform / fall relative to BTC
+            verdict = 'ALT_BEARISH'
+            modifier = -5  # Penalise LONG alts, favour SHORT alts
+        elif btcd_dir == 'UP' and btc_dir == 'SHORT':
+            # Widespread risk-off, no safe haven for alts — hard dump likely
+            verdict = 'ALT_DUMP'
+            modifier = -10  # Strongly penalise LONG alts; SHORT alts get big bonus
+        elif btcd_dir == 'DOWN' and btc_dir == 'LONG':
+            # Alt season — capital rotating from BTC into alts; best alt LONG environment
+            verdict = 'ALT_SEASON'
+            modifier = +5  # Bonus for LONG alts, penalise SHORT alts
+        elif btcd_dir == 'DOWN' and btc_dir == 'SHORT':
+            # BTC dominance falling WITH BTC price — market selling everything but alts still stable
+            verdict = 'ALT_NEUTRAL'
+            modifier = 0
+        elif btcd_dir == 'DOWN' and btc_dir == 'NEUTRAL':
+            # Slight alt bias
+            verdict = 'ALT_SLIGHTLY_BULLISH'
+            modifier = +2
+        else:
+            # Unknown or stable — no strong bias
+            verdict = 'NEUTRAL'
+            modifier = 0
+
+        return {
+            'verdict': verdict,
+            'btc_dir': btc_dir,
+            'btcd_dir': btcd_dir,
+            'confidence_modifier': modifier
+        }
+
+    def _apply_btc_context_to_altcoin(self, name: str, signal: Dict, btc_context: Dict) -> Optional[Dict]:
+        """
+        Apply the BTC macro context to an altcoin signal.
+        - BTC itself is exempt from this filter (it IS the reference).
+        - TradFi assets are exempt (unrelated to BTC dominance).
+        - Context-only assets (BTCD) should be filtered out before this.
+
+        Rules:
+          ALT_DUMP    → Block LONG alts entirely; SHORT alts get +7 bonus
+          ALT_BEARISH → Block LONG alts entirely; SHORT alts get +3 bonus
+          ALT_SEASON  → Block SHORT alts entirely; LONG alts get +5 bonus
+          ALT_SLIGHTLY_BULLISH → LONG alts get +2, no block on SHORT
+          ALT_NEUTRAL / NEUTRAL → No change
+        """
+        from config.assets import ASSETS  # Avoid circular import at module level
+
+        # Only apply to cryptocurrency altcoins (not BTC itself, not TradFi)
+        asset_type = signal.get('asset_type', '').lower()
+        if name.upper() == 'BTC' or asset_type != 'crypto':
+            return signal  # Skip — BTC or TradFi are unaffected by dominance
+
+        verdict = btc_context.get('verdict', 'NEUTRAL')
+        modifier = btc_context.get('confidence_modifier', 0)
+        is_long = 'LONG' in signal.get('signal_type', '')
+
+        if verdict == 'ALT_DUMP':
+            if is_long:
+                logger.info(f"🚫 BTC context BLOCKED {name} LONG (ALT_DUMP: BTC falling + BTC.D rising)")
+                return None
+            else:
+                # SHORT alts gain a significant bonus — this is the best SHORT environment
+                signal['confidence'] = min(signal['confidence'] + 7, 100)
+                signal['btc_context'] = verdict
+                return signal
+
+        elif verdict == 'ALT_BEARISH':
+            if is_long:
+                logger.info(f"🚫 BTC context BLOCKED {name} LONG (ALT_BEARISH: BTC.D rising, BTC rising)")
+                return None
+            else:
+                signal['confidence'] = min(signal['confidence'] + 3, 100)
+                signal['btc_context'] = verdict
+                return signal
+
+        elif verdict == 'ALT_SEASON':
+            if not is_long:
+                logger.info(f"🚫 BTC context BLOCKED {name} SHORT (ALT_SEASON: BTC.D falling, BTC rising)")
+                return None
+            else:
+                # LONG alts in alt season get a solid boost
+                signal['confidence'] = min(signal['confidence'] + 5, 100)
+                signal['btc_context'] = verdict
+                return signal
+
+        elif verdict == 'ALT_SLIGHTLY_BULLISH':
+            if is_long:
+                signal['confidence'] = min(signal['confidence'] + modifier, 100)
+            signal['btc_context'] = verdict
+            return signal
+
+        else:
+            # ALT_NEUTRAL or NEUTRAL — no change
+            return signal
+
     def detect_signals_for_asset(self, asset_name: str) -> List[Dict]:
         """Analyze a single asset and return signals above confidence threshold"""
         signals = []
