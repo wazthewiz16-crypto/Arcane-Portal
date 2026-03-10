@@ -254,7 +254,7 @@ class AutoOptimizer:
             self.datastore.set_setting("MIN_CONFIDENCE_SCALP", min(current_scalp, MAX_SCALP))
 
     def _send_discord_alert(self, updates, metrics, swing_stats, scalp_stats, hours):
-        """Send update notification to Discord with per-type breakdown."""
+        """Send update notification to Discord with per-type breakdown, active trades, and 24h PnL."""
         from integrations.discord_notifier import DiscordNotifier
         notifier = DiscordNotifier()
 
@@ -263,17 +263,60 @@ class AutoOptimizer:
                 return "N/A"
             return f"{stats['win_rate']}% ({stats['wins']}W/{stats['losses']}L)"
 
+        # ── Pull live active trade info from the DB ──────────────────────────
+        active_signals = self.datastore.get_active_signals()
+        active_count = len(active_signals)
+
+        # ── Calculate 24h PnL from closed signals ────────────────────────────
+        # We approximate PnL using R-multiples based on the signal's RR ratio:
+        #   TP_HIT  → +RR (e.g. 2.75R swing win = +2.75% for 1% risk)
+        #   SL_HIT  → -1.0 (always lose 1R on a stop-loss)
+        # This gives a normalised "R" total — not dollar PnL (which depends on position size).
+        all_24h = self.datastore.get_signal_history(hours=hours)
+        total_r = 0.0
+        tp_count = 0
+        sl_count = 0
+        for sig in all_24h:
+            rr = sig.get('rr_ratio') or 0
+            if sig['status'] == 'TP_HIT':
+                total_r += float(rr)
+                tp_count += 1
+            elif sig['status'] == 'SL_HIT':
+                total_r -= 1.0
+                sl_count += 1
+        pnl_sign = "+" if total_r >= 0 else ""
+        pnl_str = f"{pnl_sign}{total_r:.2f}R"
+        # ─────────────────────────────────────────────────────────────────────
+
         msg  = "**🤖 ARCANE AUTO-OPTIMIZER**\n"
         msg += f"Analysis Period: Last {hours}h\n"
         msg += f"Overall: WR {metrics['win_rate_pct']}% ({metrics['winners']}W/{metrics['losers']}L) | {metrics['signals_per_hour']} sigs/hr\n"
-        msg += f"\u21b3 Swings: {wr_str(swing_stats)} | Scalps: {wr_str(scalp_stats)}\n"
-        
+        msg += f"↳ Swings: {wr_str(swing_stats)} | Scalps: {wr_str(scalp_stats)}\n"
+
+        # ── Active Trades Block ──────────────────────────────────────────────
+        msg += f"\n📂 **OPEN POSITIONS: {active_count}**\n"
+        if active_signals:
+            for sig in active_signals[:8]:  # Cap at 8 to avoid very long messages
+                direction = "🟢 L" if "LONG" in sig['signal_type'] else "🔴 S"
+                trade_type = "Swing" if "SWING" in sig['signal_type'] else "Scalp"
+                msg += f"• {direction} **{sig['asset_name']}** {trade_type} ({sig['htf']}→{sig['ltf']})\n"
+            if active_count > 8:
+                msg += f"• *(+{active_count - 8} more...)*\n"
+        else:
+            msg += "• No open positions\n"
+        # ─────────────────────────────────────────────────────────────────────
+
+        # ── 24h PnL Block ────────────────────────────────────────────────────
+        pnl_emoji = "📈" if total_r >= 0 else "📉"
+        msg += f"\n{pnl_emoji} **24h PnL: {pnl_str}** ({tp_count} TP / {sl_count} SL)\n"
+        # ─────────────────────────────────────────────────────────────────────
+
         # Regime info
         regime = updates.get('MARKET_REGIME', 'RANGING')
         if regime == 'TRENDING':
-            msg += "\n\ud83d\udcc8 **Market Regime: TRENDING** (Breakout capture widened)\n\n"
+            msg += "\n📈 **Market Regime: TRENDING** (Breakout capture widened)\n\n"
         else:
-            msg += "\n\ud83d\udcca **Market Regime: RANGING** (Standard filters)\n\n"
+            msg += "\n📊 **Market Regime: RANGING** (Standard filters)\n\n"
         msg += "**⚡ MIN CONFIDENCE THRESHOLDS:**\n"
 
         for k, v in updates.items():
@@ -293,6 +336,7 @@ class AutoOptimizer:
                 msg += f"• **Dynamic SL**: Buffers widened for chop protection\n"
 
         notifier.send_message(msg)
+
 
 
 if __name__ == "__main__":
