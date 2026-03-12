@@ -205,8 +205,12 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-03-10
+**Latest Update:** 2026-03-11
 
+- **LTF Screenshot Fallback (FIX)**: `4d → 1d` swing signals were missing the lower timeframe chart in Discord because the `1d` timeframe is only scraped at specific times. The system now falls back to the most recent `1d` screenshot stored in the database when the LTF chart isn't part of the current scrape batch — ensuring both charts always appear in Discord alerts.
+- **1D Scrape Frequency Increased**: The daily (`1d`) timeframe is now scraped **3 times per day** (at 00:00, 08:00, and 16:00 UTC) instead of twice, so the daily chart data and screenshots stay fresh throughout the trading day.
+- **Stale Signal Auto-Cleanup**: Signals that remain `ACTIVE` for more than 5 days are now automatically marked `EXPIRED` on every startup — preventing zombie signals from accumulating in the DB and inflating the open position count shown in the auto-optimizer Discord report. `get_active_signals()` also now enforces a 7-day recency window.
+- **Partial TP now shown in Discord**: The `⚡ Partial TP (+1R)` level is now displayed in every signal alert between Take Profit and Stop Loss, including the % distance from entry and the breakeven note.
 - **Partial Take Profit at 1R + Breakeven SL (NEW)**: Every signal now stores a `partial_tp` level exactly 1R from entry. When price hits this level the monitor automatically moves the stop-loss to the entry price. If the trade subsequently reverses back to entry it is recorded as `BREAKEVEN` instead of `SL_HIT`, materially reducing loss magnitude. Trades that continue to the full target remain `TP_HIT` as usual.
 - **Correlated Positions Cap (NEW)**: A global cap of **2 active crypto positions per direction** is now enforced at signal generation time. If ≥2 crypto SHORTs (or LONGs) are already open, any new signal in that direction is suppressed — preventing the scenario where BTC, ETH, SOL and ARB all fire SHORT simultaneously and a single BTC bounce wipes every position at once.
 - **Crypto Scalp SL Floor raised to 1.8%**: The minimum stop-loss distance for crypto scalp trades has been increased from 1.5% to 1.8% to give positions enough breathing room to survive initial wicks on volatile 15m candles.
