@@ -55,7 +55,7 @@ class TimeframeScheduler:
         - 15m : every run
         - 1h  : twice per hour (minutes 0-14 and 25-44)
         - 4h  : once per hour  (minutes 0-14)
-        - 1d  : at 00:00 and 12:00 UTC (first 35 mins)
+        - 1d  : every 8 hours at 00:00, 08:00, 16:00 UTC (first 35 mins)
         - 12h : at 00:00 and 12:00 UTC (first 20 mins)
         - 4d  : every 4 days at 00:00 UTC (minutes 5-34)
         """
@@ -84,8 +84,8 @@ class TimeframeScheduler:
         if now.minute < 15:
             timeframes_to_scrape.append('4h')
 
-        # 1d: Twice daily at 00:00 UTC and 12:00 UTC (with 35m window)
-        if now.hour % 12 == 0 and now.minute < 35:
+        # 1d: Three times daily at 00:00, 08:00, 16:00 UTC (with 35m window)
+        if now.hour % 8 == 0 and now.minute < 35:
             timeframes_to_scrape.append('1d')
         
         # 12h: Run during first 20 mins of 12-hour candle intervals
@@ -135,8 +135,10 @@ class TimeframeScheduler:
                 return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         
         elif timeframe == '1d':
-            # Next day at 00:00 UTC
-            return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            # Next 8-hour mark (0, 8, 16)
+            hours_until_next = 8 - (now.hour % 8)
+            next_time = now + timedelta(hours=hours_until_next)
+            return next_time.replace(minute=0, second=0, microsecond=0)
         
         elif timeframe == '4d':
             # Next 4-day mark at 00:00 UTC
