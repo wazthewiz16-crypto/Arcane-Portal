@@ -157,13 +157,29 @@ class DiscordNotifier:
             decimals = 2  # High price assets (BTC, ETH, etc.)
         
         # Build message
+        entry_price = signal['entry_price']
+        partial_tp  = signal.get('partial_tp')
+        take_profit = signal['take_profit']
+        stop_loss   = signal['stop_loss']
+
+        # Format partial_tp line (show distance from entry as a %)
+        if partial_tp:
+            dist_pct = abs(partial_tp - entry_price) / entry_price * 100
+            partial_tp_line = f"⚡ Partial TP (+1R): ${partial_tp:.{decimals}f}  (+{dist_pct:.2f}% → SL moves to breakeven)"
+        else:
+            partial_tp_line = None
+
         lines = [
             f"{emoji} {signal_type} - {signal['asset_name']}",
             "━━━━━━━━━━━━━━━━━━",
             f"📊 Timeframes: {signal['htf']} → {signal['ltf']}",
-            f"💰 Entry Price: ${signal['entry_price']:.{decimals}f}",
-            f"🎯 Take Profit: ${signal['take_profit']:.{decimals}f}",
-            f"🛡️ Stop Loss: ${signal['stop_loss']:.{decimals}f}",
+            f"💰 Entry Price: ${entry_price:.{decimals}f}",
+            f"🎯 Take Profit: ${take_profit:.{decimals}f}",
+        ]
+        if partial_tp_line:
+            lines.append(partial_tp_line)
+        lines += [
+            f"🛡️ Stop Loss: ${stop_loss:.{decimals}f}",
             f"📈 RR: {signal['rr_ratio']:.1f}:1",
             f"🎲 Confidence: {signal['confidence']:.0f}%",
             f"⏰ Entry Time: {entry_time}"

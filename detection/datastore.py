@@ -26,6 +26,11 @@ class MangoDataStore:
         if not USE_POSTGRES:
             DB_PATH.parent.mkdir(exist_ok=True)
         self.init_db()
+        # Auto-expire orphaned ACTIVE signals on every startup
+        try:
+            self.expire_stale_signals()
+        except Exception as e:
+            logger.warning(f"Could not expire stale signals: {e}")
     
     def init_db(self):
         """Create tables if they don't exist"""
@@ -475,14 +480,41 @@ class MangoDataStore:
             cursor = self._execute_query(conn, "SELECT last_insert_rowid()")
             return cursor.fetchone()[0]
     
-    def get_active_signals(self):
-        """Get all active signals"""
+    def get_active_signals(self, max_age_days: int = 7):
+        """Get all active signals, excluding stale orphans older than max_age_days.
+        
+        Signals left ACTIVE indefinitely are usually orphans — the monitor
+        never closed them because it missed cycles. Capping at 7 days ensures
+        they don't pollute the correlated position cap and open position count.
+        """
+        from datetime import datetime, timedelta
+        cutoff = (datetime.utcnow() - timedelta(days=max_age_days)).isoformat()
         with self.get_connection() as conn:
             return self._fetch_query(conn, """
                 SELECT * FROM signals
                 WHERE status = 'ACTIVE'
+                AND entry_time >= ?
                 ORDER BY entry_time DESC
-            """)
+            """, (cutoff,))
+    
+    def expire_stale_signals(self, max_age_days: int = 5):
+        """Mark ACTIVE signals older than max_age_days as EXPIRED.
+        
+        Prevents indefinite accumulation of orphaned ACTIVE signals that were
+        never closed by the status monitor. Called automatically on startup.
+        """
+        from datetime import datetime, timedelta
+        cutoff = (datetime.utcnow() - timedelta(days=max_age_days)).isoformat()
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            result = self._execute_query(conn, """
+                UPDATE signals
+                SET status = 'EXPIRED', updated_at = ?
+                WHERE status = 'ACTIVE'
+                AND entry_time < ?
+            """, (now, cutoff))
+            if hasattr(result, 'rowcount') and result.rowcount:
+                logger.info(f"Expired {result.rowcount} stale ACTIVE signal(s) older than {max_age_days} days")
     
     def get_signal_history(self, hours=24):
         """Get signal history for the last N hours"""
