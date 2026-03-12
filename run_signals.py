@@ -149,12 +149,24 @@ async def run_scraper_and_detect():
                     # Find matching scrape result for LTF (entry chart)
                     ltf = signal['ltf']
                     scrape_match = next((r for r in asset_scrapes if r['timeframe'] == ltf), None)
+                    ltf_bytes = None
                     if scrape_match and 'screenshot_bytes' in scrape_match:
-                         # Save to Signal Images
+                         ltf_bytes = scrape_match['screenshot_bytes']
+                         # Save to Signal Images table
                          datastore.save_signal_image(signal_id, scrape_match['screenshot_bytes'])
+                    else:
+                         # Fallback: LTF may not be in this scrape cycle (e.g. 1d only scraped twice daily)
+                         db_screenshot = datastore.get_screenshot(asset_name, ltf)
+                         if db_screenshot and db_screenshot.get('image_data'):
+                             ltf_bytes = db_screenshot['image_data']
+                             print(f"    📸 LTF ({ltf}) not in current batch — using DB screenshot")
+                         else:
+                             print(f"    ⚠️  No LTF screenshot available for {asset_name} {ltf}")
+
+                    if ltf_bytes:
                          # Write LTF screenshot to temp file for Discord
                          with tempfile.NamedTemporaryFile(suffix=f"_{ltf}.png", delete=False) as tmp:
-                             tmp.write(scrape_match['screenshot_bytes'])
+                             tmp.write(ltf_bytes)
                              signal['image_path'] = tmp.name
                          print(f"    📸 Attached LTF screenshot ({ltf})")
                     
