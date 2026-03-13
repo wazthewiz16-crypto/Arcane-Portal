@@ -80,7 +80,7 @@ class SignalAnalyzer:
         
         return analysis
     
-    def _calculate_metrics(self, signals):
+    def _calculate_metrics(self, signals, period_hours=None):
         """Calculate overall metrics"""
         
         total = len(signals)
@@ -109,9 +109,13 @@ class SignalAnalyzer:
         avg_rr = sum(rr_ratios) / len(rr_ratios) if rr_ratios else 0
         
         # Calculate hourly rate
-        earliest = min(datetime.fromisoformat(s['created_at']) for s in signals)
-        latest = max(datetime.fromisoformat(s['created_at']) for s in signals)
-        hours_span = (latest - earliest).total_seconds() / 3600
+        if period_hours:
+            hours_span = period_hours
+        else:
+            earliest = min(datetime.fromisoformat(s['created_at']) for s in signals)
+            latest = max(datetime.fromisoformat(s['created_at']) for s in signals)
+            hours_span = (latest - earliest).total_seconds() / 3600
+        
         signals_per_hour = total / hours_span if hours_span > 0 else 0
         
         return {
