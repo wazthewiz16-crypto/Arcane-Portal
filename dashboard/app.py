@@ -21,7 +21,7 @@ def get_cached_active_signals():
     ds = MangoDataStore()
     return ds.get_active_signals()
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def get_cached_history(hours):
     ds = MangoDataStore()
     return ds.get_signal_history(hours=hours)
@@ -257,17 +257,34 @@ def render_signal_card(signal):
 def render_signal_history():
     """Render signal history table"""
     st.header("📊 Signal History")
-    
-    # Time range selector
+
+    # ── Time range selector ───────────────────────────────────────────────────
+    RANGE_OPTIONS = {
+        "Last 6 hours":  6,
+        "Last 12 hours": 12,
+        "Last 24 hours": 24,
+        "Last 48 hours": 48,
+        "Last 72 hours": 72,
+        "Last 7 days":   7  * 24,
+        "Last 14 days":  14 * 24,
+        "Last 30 days":  30 * 24,
+    }
     col1, col2 = st.columns([1, 3])
     with col1:
-        hours = st.selectbox("Time Range", [6, 12, 24, 48, 72], index=2, key="history_hours")
-    
+        range_label = st.selectbox(
+            "Time Range",
+            list(RANGE_OPTIONS.keys()),
+            index=2,          # default = Last 24 hours
+            key="history_hours_label"
+        )
+    hours = RANGE_OPTIONS[range_label]
+    # ─────────────────────────────────────────────────────────────────────────
+
     datastore = MangoDataStore()
-    
+
     try:
         history = get_cached_history(hours)
-        
+
         # Fetch current prices for floating PnL
         current_prices = {}
         try:
@@ -276,19 +293,19 @@ def render_signal_history():
                 current_prices[scrape['name']] = scrape['close']
         except Exception as e:
             logger.error(f"Error fetching current prices: {e}")
-        
+
         if not history:
-            st.info(f"No signals in the last {hours} hours")
+            st.info(f"No signals in the {range_label.lower()}")
             return
-        
+
         # Convert to DataFrame
         import pandas as pd
         df = pd.DataFrame(history)
-        
+
         # Helper for timezone conversion
         import pytz
         from datetime import datetime
-        
+
         def format_time_est(time_str):
             """Convert time string to EST"""
             try:
@@ -301,36 +318,34 @@ def render_signal_history():
 
         # 1. Start Time
         df['Time'] = df['entry_time'].apply(format_time_est)
-        
+
         # 2. Exit Time
         def get_exit_time(row):
             if row['status'] in ['ACTIVE', 'CREATED']:
                 return "-"
             return format_time_est(row['updated_at'])
-        
+
         df['Exit Time'] = df.apply(get_exit_time, axis=1)
-        
+
         # 3. Duration
         def calculate_duration(row):
             if row['status'] in ['ACTIVE', 'CREATED']:
-                # Calculate time since entry
                 try:
                     start = pd.to_datetime(row['entry_time'], format='mixed', utc=True)
                     now = pd.Timestamp.now(tz='UTC')
                     diff = now - start
-                    hours = int(diff.total_seconds() // 3600)
-                    mins = int((diff.total_seconds() % 3600) // 60)
-                    return f"{hours}h {mins}m (Open)"
+                    h = int(diff.total_seconds() // 3600)
+                    m = int((diff.total_seconds() % 3600) // 60)
+                    return f"{h}h {m}m (Open)"
                 except:
                     return "-"
-            
             try:
                 start = pd.to_datetime(row['entry_time'], format='mixed', utc=True)
-                end = pd.to_datetime(row['updated_at'], format='mixed', utc=True)
-                diff = end - start
-                hours = int(diff.total_seconds() // 3600)
-                mins = int((diff.total_seconds() % 3600) // 60)
-                return f"{hours}h {mins}m"
+                end   = pd.to_datetime(row['updated_at'], format='mixed', utc=True)
+                diff  = end - start
+                h = int(diff.total_seconds() // 3600)
+                m = int((diff.total_seconds() % 3600) // 60)
+                return f"{h}h {m}m"
             except:
                 return "-"
 
@@ -339,22 +354,18 @@ def render_signal_history():
         # 4. P&L %
         def calculate_pnl(row):
             exit_price = None
-            
             if row['status'] == 'TP_HIT':
                 exit_price = row['take_profit']
             elif row['status'] == 'SL_HIT':
                 exit_price = row['stop_loss']
             elif row['status'] in ['ACTIVE', 'CREATED']:
-                # Calculate floating PnL
                 exit_price = current_prices.get(row['asset_name'])
-            
             if exit_price is None:
                 return None
-            
             try:
                 if 'LONG' in row['signal_type']:
                     pnl = (exit_price - row['entry_price']) / row['entry_price']
-                else: # SHORT
+                else:
                     pnl = (row['entry_price'] - exit_price) / row['entry_price']
                 return round(pnl * 100, 2)
             except:
@@ -364,73 +375,129 @@ def render_signal_history():
 
         # Clean up Confidence
         df['confidence'] = df['confidence'].round(0).astype(int)
-        
+
         # Format Timeframe
         def format_tf(row):
             htf = row.get('htf', '-')
             ltf = row.get('ltf', '-')
             return f"{htf} → {ltf}"
-            
+
         df['TF'] = df.apply(format_tf, axis=1)
-        
+
         # Select columns for display
-        # Map raw column names to display names if needed, or just create new DF
         display_columns = [
             'Time', 'asset_name', 'signal_type', 'TF', 'confidence',
-            'entry_price', 'take_profit', 'stop_loss', 'status', 
+            'entry_price', 'take_profit', 'stop_loss', 'status',
             'Exit Time', 'Duration', 'PnL %'
         ]
-        
-        # Ensure columns exist (for robustness)
         available_cols = [c for c in display_columns if c in df.columns]
         display_df = df[available_cols].copy()
-        
-        # Rename for cleaner UI
         display_df.columns = [
-            'Entry Time', 'Asset', 'Type', 'TF', 'Conf', 
-            'Entry', 'TP', 'SL', 'Status', 
+            'Entry Time', 'Asset', 'Type', 'TF', 'Conf',
+            'Entry', 'TP', 'SL', 'Status',
             'Exit Time', 'Duration', 'PnL %'
         ]
-        
-        # Styling
+
         st.dataframe(
             display_df,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "PnL %": st.column_config.NumberColumn(
-                    "PnL %",
-                    format="%.2f%%",
-                ),
+                "PnL %": st.column_config.NumberColumn("PnL %", format="%.2f%%"),
             }
         )
-        
-        # Summary stats
+
+        # ── Summary Stats ─────────────────────────────────────────────────────
+        st.divider()
         col1, col2, col3, col4 = st.columns(4)
+        completed = df[df['status'].isin(['TP_HIT', 'SL_HIT'])]
+        wins      = len(completed[completed['status'] == 'TP_HIT'])
+        win_rate  = (wins / len(completed) * 100) if not completed.empty else 0
+        total_pnl = df['PnL %'].sum()
+
         with col1:
             st.metric("Total Signals", len(df))
         with col2:
             active_count = len(df[df['status'] == 'ACTIVE'])
             st.metric("Active", active_count)
         with col3:
-            # Win Rate (TP vs SL)
-            completed = df[df['status'].isin(['TP_HIT', 'SL_HIT'])]
-            if not completed.empty:
-                wins = len(completed[completed['status'] == 'TP_HIT'])
-                win_rate = (wins / len(completed)) * 100
-                st.metric("Win Rate", f"{win_rate:.0f}%")
-            else:
-                st.metric("Win Rate", "0%")
+            st.metric("Win Rate", f"{win_rate:.0f}%" if not completed.empty else "0%")
         with col4:
-            # Total PnL
-            total_pnl = df['PnL %'].sum()
             st.metric("Total PnL", f"{total_pnl:+.2f}%")
-            
+
+        # ── Per-Type Breakdown (shown for ranges > 72h) ───────────────────────
+        if hours > 72:
+            st.subheader("🔍 Performance Breakdown by Signal Type")
+            st.caption("Closed trades only (TP\_HIT / SL\_HIT). Active trades excluded.")
+
+            breakdown_rows = []
+            for sig_type in sorted(df['signal_type'].unique()):
+                subset    = df[df['signal_type'] == sig_type]
+                closed    = subset[subset['status'].isin(['TP_HIT', 'SL_HIT'])]
+                tp        = len(closed[closed['status'] == 'TP_HIT'])
+                sl        = len(closed[closed['status'] == 'SL_HIT'])
+                total_cl  = tp + sl
+                wr        = f"{tp/total_cl*100:.0f}%" if total_cl else "N/A"
+                avg_conf  = round(subset['confidence'].mean(), 0) if len(subset) else 0
+                pnl_sum   = subset['PnL %'].sum()
+                breakdown_rows.append({
+                    'Type':        sig_type,
+                    'Total':       len(subset),
+                    'Active':      len(subset[subset['status'] == 'ACTIVE']),
+                    'TP':          tp,
+                    'SL':          sl,
+                    'Win Rate':    wr,
+                    'Avg Conf':    f"{avg_conf:.0f}%",
+                    'PnL Sum %':   round(pnl_sum, 2),
+                })
+
+            bdf = pd.DataFrame(breakdown_rows)
+            st.dataframe(
+                bdf,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "PnL Sum %": st.column_config.NumberColumn("PnL Sum %", format="%.2f%%"),
+                }
+            )
+
+            # ── Top / Worst assets ────────────────────────────────────────────
+            st.subheader("🏆 Asset Performance")
+            asset_rows = []
+            for asset in sorted(df['asset_name'].unique()):
+                subset   = df[df['asset_name'] == asset]
+                closed   = subset[subset['status'].isin(['TP_HIT', 'SL_HIT'])]
+                tp       = len(closed[closed['status'] == 'TP_HIT'])
+                sl       = len(closed[closed['status'] == 'SL_HIT'])
+                total_cl = tp + sl
+                wr       = f"{tp/total_cl*100:.0f}%" if total_cl else "N/A"
+                pnl_sum  = subset['PnL %'].sum()
+                asset_rows.append({
+                    'Asset':     asset,
+                    'Signals':   len(subset),
+                    'TP':        tp,
+                    'SL':        sl,
+                    'Win Rate':  wr,
+                    'PnL Sum %': round(pnl_sum, 2),
+                })
+
+            adf = pd.DataFrame(asset_rows).sort_values('PnL Sum %', ascending=False)
+            st.dataframe(
+                adf,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "PnL Sum %": st.column_config.NumberColumn("PnL Sum %", format="%.2f%%"),
+                }
+            )
+        # ─────────────────────────────────────────────────────────────────────
+
     except Exception as e:
         st.error(f"Error loading history: {e}")
         logger.error(f"Error in render_signal_history: {e}")
         import traceback
         st.code(traceback.format_exc())
+
 
 def render_asset_monitor(datastore=None):
     """Render asset monitoring section"""
