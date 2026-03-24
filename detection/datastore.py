@@ -655,28 +655,34 @@ class MangoDataStore:
         """Get latest scrape for each asset/timeframe combo"""
         with self.get_connection() as conn:
             return self._fetch_query(conn, """
-                SELECT * FROM scrapes s1
-                WHERE timestamp = (
-                    SELECT MAX(timestamp)
-                    FROM scrapes s2
-                    WHERE s1.name = s2.name AND s1.timeframe = s2.timeframe
-                )
-
-                ORDER BY name, timeframe
+                SELECT s1.* 
+                FROM scrapes s1
+                JOIN (
+                    SELECT name, timeframe, MAX(timestamp) as max_ts
+                    FROM scrapes
+                    GROUP BY name, timeframe
+                ) s2 
+                ON s1.name = s2.name 
+                AND s1.timeframe = s2.timeframe 
+                AND s1.timestamp = s2.max_ts
             """)
 
     def get_latest_for_asset(self, asset_name):
         """Get latest scrape for a single asset (all timeframes)"""
         with self.get_connection() as conn:
-            rows = self._fetch_query(conn, """
-                SELECT * FROM scrapes s1
-                WHERE name = ? AND timestamp = (
-                    SELECT MAX(timestamp)
-                    FROM scrapes s2
-                    WHERE s1.name = s2.name AND s1.timeframe = s2.timeframe
-                )
+            return self._fetch_query(conn, """
+                SELECT s1.* 
+                FROM scrapes s1
+                JOIN (
+                    SELECT name, timeframe, MAX(timestamp) as max_ts
+                    FROM scrapes
+                    WHERE name = ?
+                    GROUP BY name, timeframe
+                ) s2 
+                ON s1.name = s2.name 
+                AND s1.timeframe = s2.timeframe 
+                AND s1.timestamp = s2.max_ts
             """, (asset_name,))
-            return rows
     
     def _get_candle_time(self, timestamp_str, timeframe):
         """Align timestamp to candle start"""
