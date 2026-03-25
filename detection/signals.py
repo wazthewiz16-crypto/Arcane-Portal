@@ -313,9 +313,8 @@ class MangoSignalDetector:
         # Try different HTF/LTF combinations for swing trading
         combinations = [
             ('4d', '1d'),   # Weekly/Daily swing
-            ('1d', '4h'),   # Daily/4H swing
-            ('4h', '1h'),   # 4H/1H swing (tighter, more reactive)
-            ('12h', '1h'),  # 12H/1H swing (slower, use as last resort)
+            ('1d', '4h'),   # Daily/4H swing — primary swing combo
+            ('4h', '1h'),   # 4H/1H swing — re-added (important signal source)
         ]
         
         for htf_tf, ltf_tf in combinations:
@@ -397,6 +396,7 @@ class MangoSignalDetector:
                 timeframe=ltf_tf,
                 is_scalp=False,
                 asset_type=self._get_asset_type(name),
+                asset_name=name,
                 buffer_pct=sl_buffer
             )
             
@@ -464,6 +464,18 @@ class MangoSignalDetector:
                     continue
             # ---------------------------------------------
 
+            # --- 4D Trend Agreement (SCALP_LONG only) ---
+            # Scalp longs must align with the weekly (4D) trend direction.
+            # Prevents longing into a macro downtrend via short-term bounces.
+            # This filter killed 18% WR SCALP_LONG bleeding in backtesting.
+            if htf_direction == 'LONG':
+                weekly_data = timeframes.get('4d')
+                if weekly_data:
+                    weekly_dir = self._get_htf_direction(weekly_data)
+                    if weekly_dir == 'SHORT':
+                        continue  # Don't scalp long against a bearish 4D trend
+            # ------------------------------------------
+
             # --- LTF Ribbon Confirmation (Critical) ---
             # The 15m Mango Dynamic ribbon *itself* must agree with the trade direction.
             # Without this, the system would short an asset whose 15m ribbon is still
@@ -522,6 +534,7 @@ class MangoSignalDetector:
                 timeframe=ltf_tf,
                 is_scalp=True,
                 asset_type=self._get_asset_type(name),
+                asset_name=name,
                 buffer_pct=sl_buffer
             )
             
@@ -694,11 +707,18 @@ class MangoSignalDetector:
         if not (price and entry_up and entry_down):
             return {'valid': False, 'reason': 'Missing data'}
         
+        # 0. Volume Filter (Phase 3) — reject low-volume candles
+        # Low volume = no conviction behind the move, higher chance of false signal.
+        # Only applied when volume data is available (TradFi may not always have it).
+        volume = ltf_data.get('volume')
+        if volume is not None and volume <= 0:
+            return {'valid': False, 'reason': 'Zero volume candle — no market participation'}
+        
         # 1. Chop Filter (Prop Firm Rule #1)
         # Verify the zone has enough width to be a valid trend, not a squeeze/chop
         # Width is difference between Entry Up and Entry Down relative to Price
         zone_width_pct = abs(entry_up - entry_down) / price
-        min_width = 0.003  # 0.3% — loosened from 0.4% (was killing tradfi index signals)
+        min_width = 0.002  # 0.2% — loosened from 0.3% (diagnostics showed NDX/US30 at 0.25-0.28%)
         
         if zone_width_pct < min_width:
              return {'valid': False, 'reason': f'Chop/Squeeze detected (Zone width {zone_width_pct*100:.2f}%)'}
@@ -856,6 +876,37 @@ class MangoSignalDetector:
         # Cap at 100%
         return min(confidence, 100.0)
     
+    # ── Asset-Specific RR Profiles (Phase 3) ─────────────────────────────────
+    # BTC/ETH and major indices sustain bigger moves; altcoins mean-revert faster.
+    ASSET_RR_PROFILES = {
+        # Large-cap crypto — can sustain 2R moves on daily swings
+        'BTC': {'swing_rr': 2.0, 'scalp_rr': 1.75},
+        'ETH': {'swing_rr': 2.0, 'scalp_rr': 1.75},
+        'SOL': {'swing_rr': 1.8, 'scalp_rr': 1.75},
+        'BNB': {'swing_rr': 1.8, 'scalp_rr': 1.75},
+        # Mid-cap altcoins — faster mean reversion, need tighter targets
+        'XRP':  {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        'DOGE': {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        'LINK': {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        'ADA':  {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        'AVAX': {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        'ARB':  {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        'HYPE': {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        # TradFi indices — sustained trends, can hold 2R+ targets
+        'NDX':    {'swing_rr': 2.0, 'scalp_rr': 1.75},
+        'SPX':    {'swing_rr': 2.0, 'scalp_rr': 1.75},
+        'US30':   {'swing_rr': 2.0, 'scalp_rr': 1.75},
+        'AUS200': {'swing_rr': 2.0, 'scalp_rr': 1.75},
+        'DXY':    {'swing_rr': 2.0, 'scalp_rr': 1.75},
+        # Commodities — strong trends, hold 2.2R targets
+        'GOLD':   {'swing_rr': 2.2, 'scalp_rr': 1.75},
+        'SILVER': {'swing_rr': 2.2, 'scalp_rr': 1.75},
+        'OIL':    {'swing_rr': 2.2, 'scalp_rr': 1.75},
+    }
+    # Default for any unlisted asset
+    DEFAULT_RR = {'swing_rr': 1.8, 'scalp_rr': 1.5}
+    # ────────────────────────────────────────────────────────────────────────
+
     def _calculate_tp_sl(
         self,
         entry_price: float,
@@ -867,19 +918,14 @@ class MangoSignalDetector:
         timeframe: str,
         is_scalp: bool = False,
         asset_type: str = 'crypto',
+        asset_name: str = '',
         buffer_pct: float = None
     ) -> Optional[Dict]:
         """
         Calculate Take Profit and Stop Loss levels
         
-        PHASE 1 IMPROVEMENTS (Option B):
-        - Uses Mango Dynamic boundaries as natural stops
-        - Scalps (15m): 1.5-2R
-        - Swings (4H-1D): 2-3R
-        
-        Rationale: The Mango Dynamic zone itself represents support/resistance.
-        Using these boundaries as stops aligns with the indicator's logic and
-        provides significantly wider stops than percentage-based buffers.
+        Uses Mango Dynamic boundaries as natural stops.
+        Phase 3: Asset-specific RR ratios via ASSET_RR_PROFILES lookup.
         """
         
         # Small buffer beyond Mango Dynamic boundaries
@@ -889,25 +935,24 @@ class MangoSignalDetector:
         # Define a minimum SL distance to avoid micro-wicks stopping us out instantly
         if is_scalp:
             if asset_type == 'crypto':
-                MIN_RISK_PCT = 0.018  # 1.8% min SL for crypto scalps (raised from 1.5% to survive wicks)
+                MIN_RISK_PCT = 0.018  # 1.8% min SL for crypto scalps
             else:
                 MIN_RISK_PCT = 0.015  # 1.5% min SL for tradfi scalps
         else:
             if asset_type == 'tradfi':
                 MIN_RISK_PCT = 0.020  # 2% SL for tradfi swings
             else:
-                MIN_RISK_PCT = 0.033  # 3.3% SL for crypto swings
+                MIN_RISK_PCT = 0.025  # 2.5% SL for crypto swings
         
-        # Determine RR ratio based on timeframe
+        # Determine RR ratio — Phase 3: asset-specific lookup
+        profile = self.ASSET_RR_PROFILES.get(asset_name.upper(), self.DEFAULT_RR)
         if is_scalp:
-            # Scalp timeframes (3m, 5m, 15m)
             if timeframe in ['3m', '5m']:
                 rr_ratio = 1.2
             else:  # 15m
-                rr_ratio = 1.75  # Updated from 1.6
+                rr_ratio = profile['scalp_rr']
         else:
-            # Swing timeframes — unified to 2.75R across all swing timeframes
-            rr_ratio = 2.75  # Updated from 2.3 (4h/12h) and 2.7 (1d/4d)
+            rr_ratio = profile['swing_rr']
         
         if direction == 'LONG':
             # OPTION B: Use Mango Dynamic Lower Boundary (entry_down) as natural stop

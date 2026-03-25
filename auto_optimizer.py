@@ -293,15 +293,67 @@ class AutoOptimizer:
         msg += f"Overall: WR {metrics['win_rate_pct']}% ({metrics['winners']}W/{metrics['losers']}L) | {metrics['signals_per_hour']} sigs/hr\n"
         msg += f"↳ Swings: {wr_str(swing_stats)} | Scalps: {wr_str(scalp_stats)}\n"
 
-        # ── Active Trades Block ──────────────────────────────────────────────
+        # ── Active Trades Block (with floating PnL) ─────────────────────────
+        # Fetch current prices for PnL calculation
+        current_prices = {}
+        try:
+            latest_scrapes = self.datastore.get_latest_for_all_assets()
+            for scrape in latest_scrapes:
+                # Key: BTC, SPX, etc. (normalized)
+                current_prices[scrape['name'].strip().upper()] = float(scrape['close'])
+        except Exception:
+            pass
+
         msg += f"\n📂 **OPEN POSITIONS: {active_count}**\n"
+        total_open_pnl = 0.0
+        open_pnl_count = 0
+
         if active_signals:
-            for sig in active_signals[:8]:  # Cap at 8 to avoid very long messages
+            # First, calculate PnL for ALL positions to get the grand total
+            for sig in active_signals:
+                asset_key = sig['asset_name'].strip().upper()
+                cur_price = current_prices.get(asset_key)
+                if cur_price and sig.get('entry_price'):
+                    try:
+                        entry_p = float(sig['entry_price'])
+                        if 'LONG' in sig['signal_type']:
+                            total_open_pnl += (cur_price - entry_p) / entry_p * 100
+                        else:
+                            total_open_pnl += (entry_p - cur_price) / entry_p * 100
+                        open_pnl_count += 1
+                    except: pass
+
+            # Now build the display lines for top 8
+            for sig in active_signals[:8]:
                 direction = "🟢 L" if "LONG" in sig['signal_type'] else "🔴 S"
                 trade_type = "Swing" if "SWING" in sig['signal_type'] else "Scalp"
-                msg += f"• {direction} **{sig['asset_name']}** {trade_type} ({sig['htf']}→{sig['ltf']})\n"
+
+                pnl_tag = ""
+                asset_key = sig['asset_name'].strip().upper()
+                cur_price = current_prices.get(asset_key)
+                if cur_price and sig.get('entry_price'):
+                    try:
+                        entry_p = float(sig['entry_price'])
+                        if 'LONG' in sig['signal_type']:
+                            pnl_pct = (cur_price - entry_p) / entry_p * 100
+                        else:
+                            pnl_pct = (entry_p - cur_price) / entry_p * 100
+                        sign = "+" if pnl_pct >= 0 else ""
+                        pnl_tag = f" `{sign}{pnl_pct:.2f}%`"
+                    except: pass
+
+                msg += f"• {direction} **{sig['asset_name']}** {trade_type} ({sig['htf']}→{sig['ltf']}){pnl_tag}\n"
+
             if active_count > 8:
                 msg += f"• *(+{active_count - 8} more...)*\n"
+
+            # Summed open PnL
+            if open_pnl_count > 0:
+                open_sign = "+" if total_open_pnl >= 0 else ""
+                open_emoji = "🟩" if total_open_pnl >= 0 else "🟥"
+                msg += f"{open_emoji} **Open PnL: {open_sign}{total_open_pnl:.2f}%** ({open_pnl_count} positions)\n"
+            elif active_count > 0:
+                msg += "⚠️ *Floating PnL data unavailable*\n"
         else:
             msg += "• No open positions\n"
         # ─────────────────────────────────────────────────────────────────────

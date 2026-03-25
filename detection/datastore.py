@@ -582,7 +582,7 @@ class MangoDataStore:
                 
                 # Get latest price for this asset
                 latest_prices = self._fetch_query(conn, """
-                    SELECT close FROM scrapes
+                    SELECT close, high, low FROM scrapes
                     WHERE name = ?
                     ORDER BY timestamp DESC
                     LIMIT 1
@@ -592,12 +592,14 @@ class MangoDataStore:
                     continue
                 
                 current_price = latest_prices[0]['close']
+                candle_high = latest_prices[0].get('high') or current_price
+                candle_low = latest_prices[0].get('low') or current_price
                 is_long = 'LONG' in signal_type
                 now = datetime.utcnow().isoformat()
                 
                 if is_long:
                     # ── Stage 1: Partial TP hit → move SL to breakeven ──
-                    if partial_tp and not partial_hit and current_price >= partial_tp:
+                    if partial_tp and not partial_hit and candle_high >= partial_tp:
                         self._execute_query(conn, """
                             UPDATE signals
                             SET partial_tp_hit = TRUE, stop_loss = ?, updated_at = ?
@@ -608,11 +610,11 @@ class MangoDataStore:
                         partial_hit = True
 
                     # ── Stage 2: Full TP or SL ──
-                    if current_price >= take_profit:
+                    if candle_high >= take_profit:
                         self._execute_query(conn, """
                             UPDATE signals SET status = 'TP_HIT', updated_at = ? WHERE id = ?
                         """, (now, signal_id))
-                    elif current_price <= stop_loss:
+                    elif candle_low <= stop_loss:
                         status = 'BREAKEVEN' if partial_hit else 'SL_HIT'
                         self._execute_query(conn, """
                             UPDATE signals SET status = ?, updated_at = ? WHERE id = ?
@@ -620,7 +622,7 @@ class MangoDataStore:
 
                 else:  # SHORT
                     # ── Stage 1: Partial TP hit → move SL to breakeven ──
-                    if partial_tp and not partial_hit and current_price <= partial_tp:
+                    if partial_tp and not partial_hit and candle_low <= partial_tp:
                         self._execute_query(conn, """
                             UPDATE signals
                             SET partial_tp_hit = TRUE, stop_loss = ?, updated_at = ?
@@ -631,11 +633,11 @@ class MangoDataStore:
                         partial_hit = True
 
                     # ── Stage 2: Full TP or SL ──
-                    if current_price <= take_profit:
+                    if candle_low <= take_profit:
                         self._execute_query(conn, """
                             UPDATE signals SET status = 'TP_HIT', updated_at = ? WHERE id = ?
                         """, (now, signal_id))
-                    elif current_price >= stop_loss:
+                    elif candle_high >= stop_loss:
                         status = 'BREAKEVEN' if partial_hit else 'SL_HIT'
                         self._execute_query(conn, """
                             UPDATE signals SET status = ?, updated_at = ? WHERE id = ?
