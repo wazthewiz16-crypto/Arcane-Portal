@@ -140,15 +140,30 @@ class TradingViewScraper:
                 wait_time = 4
             await asyncio.sleep(wait_time)
             
-            # Hide floating toolbars and favorites bar (user request)
+            # Hide floating toolbars, dialogs/popups (like Easter sale), and banners (user request)
             try:
                 await page.add_style_tag(content="""
+                    /* Toolbars */
                     .tv-floating-toolbar, 
                     .drawing-toolbar, 
                     .tv-favorited-drawings-toolbar,
                     [class*="floating-toolbar"],
                     [class*="floatingToolbar"],
-                    [data-name="drawing-toolbar"] {
+                    [data-name="drawing-toolbar"],
+                    
+                    /* Dialogs & Popups (Easter Sale, etc.) */
+                    [role="dialog"],
+                    [class*="dialog-"],
+                    [class*="modal-"],
+                    [class*="popup-"],
+                    .tv-dialog,
+                    .tv-modal,
+                    
+                    /* Banners & Promo */
+                    [class*="banner-"],
+                    [class*="promo-"],
+                    [class*="toast-"],
+                    [class*="onboarding-"] {
                         display: none !important;
                     }
                 """)
