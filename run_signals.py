@@ -213,6 +213,16 @@ async def run_scraper_and_detect():
         print(f"❌ Stream error: {e}")
         import traceback
         traceback.print_exc()
+        
+    # Step 3: Trade Radar (Runs 4 times a day)
+    # The cron starts explicitly on the 10th/15th minute mark, we want the start of the hour run.
+    if now.hour in [8, 12, 16, 20] and now.minute < 10:
+        print("\n[STEP 3] Running Trade Radar (scheduled hour)...")
+        try:
+            from trade_radar import run_trade_radar
+            run_trade_radar()
+        except Exception as e:
+            print(f"⚠️ Error running trade radar: {e}")
 
     print(f"\n✅ Streaming Complete! {total_signals} new signals generated.")
     
