@@ -9,6 +9,7 @@
 - 🔮 **Automated Signal Detection**: Swing and scalp signals using precise two-timeframe alignment
 - 🧠 **Market Regime Detection**: Heuristic-based system that classifies market conditions as TRENDING or RANGING and dynamically adjusts filters — wider breakout capture on trend days, standard parameters when ranging.
 - 🤖 **Auto-Optimizer**: Runs continually to dynamically adjust confidence thresholds up or down based on recent win rates, frequency, and detected market regime, preventing dry spells and system death-spirals.
+- 📡 **Trade Radar**: Automatically pushes the top 5 "Prime" active trades (ideal pullbacks and near-entry trades) to Discord 4 times a day, allowing you to catch high-probability setups without watching charts.
 - 📊 **Real-time Dashboard**: Beautiful Streamlit interface with live updates, active signals, historical performance, dynamic levels (15m through 4d), and system health metrics.
 - 💬 **Discord Alerts**: Instant notifications with rich embeds (TP/SL/RR details), **dual TradingView screenshots** (HTF context chart + LTF entry chart), and automated optimizer updates.
 - 🕒 **Weekend Optimization Protocol**: Automatically reduces Railway compute costs by 75% on weekends by skipping 15-minute cron intervals, completely blacking out closed TradFi markets, and lowering Crypto scraping to scalp-only timeframes.
@@ -152,6 +153,9 @@ A self-healing loop that runs periodically to evaluate the Win Rate, Signal Freq
 
 **Recommended Schedule:** Run 3x daily (e.g. 3am, 9:30am, 5pm EST) via Railway Cron or external scheduler to capture post-session resolutions.
 
+### Trade Radar (`trade_radar.py`)
+A secondary digest system designed for part-time monitoring. Evaluates all open positions and filters for "Prime" setups (trades currently in a slight pullback or resting exactly at entry, avoiding trades that are too close to stop-loss or already heavily in profit). It ranks them by a blend of confidence and PnL%, then automatically pushes a summary of the top 5 trades to Discord at **8 AM, 12 PM, 4 PM, and 8 PM EST**. No separate cron required; it's integrated natively into `run_signals.py`.
+
 ### Continuous Monitoring (`monitor_signals.py`)
 The primary execution script.
 - Watches the database for new signals.
@@ -205,8 +209,10 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-03-11
+**Latest Update:** 2026-03-30
 
+- **Automated Trade Radar (NEW)**: Added a new `trade_radar.py` script that evaluates all open positions, identifies "Prime" setups (ideal pullbacks and near-entry opportunities), ranks them by confidence, and sends a top-5 digest to Discord. This runs automatically 4 times a day (8 AM, 12 PM, 4 PM, 8 PM EST) natively integrated into the `run_signals.py` loop.
+- **UI Cleanup for Screenshots**: Added aggressive CSS rules in the TradingView scraper to automatically hide pop-ups, promotional banners (like Easter sales), and floating toolbars before taking screenshots. This ensures Discord charts remain perfectly clean and unobstructed.
 - **LTF Screenshot Fallback (FIX)**: `4d → 1d` swing signals were missing the lower timeframe chart in Discord because the `1d` timeframe is only scraped at specific times. The system now falls back to the most recent `1d` screenshot stored in the database when the LTF chart isn't part of the current scrape batch — ensuring both charts always appear in Discord alerts.
 - **1D Scrape Frequency Increased**: The daily (`1d`) timeframe is now scraped **3 times per day** (at 00:00, 08:00, and 16:00 UTC) instead of twice, so the daily chart data and screenshots stay fresh throughout the trading day.
 - **Stale Signal Auto-Cleanup**: Signals that remain `ACTIVE` for more than 5 days are now automatically marked `EXPIRED` on every startup — preventing zombie signals from accumulating in the DB and inflating the open position count shown in the auto-optimizer Discord report. `get_active_signals()` also now enforces a 7-day recency window.
