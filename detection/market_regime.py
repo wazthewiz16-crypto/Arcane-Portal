@@ -13,6 +13,8 @@ Features:
 """
 import logging
 from typing import Dict, Optional
+from pathlib import Path
+import joblib
 from detection.datastore import MangoDataStore
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,16 @@ class MarketRegimeDetector:
 
     def __init__(self, datastore: MangoDataStore):
         self.datastore = datastore
+        self.model = None
+        
+        # Load ML model if it exists (Phase 2)
+        model_path = Path(__file__).parent / 'ml_regime_model.pkl'
+        if model_path.exists():
+            try:
+                self.model = joblib.load(model_path)
+                logger.info(f"Loaded ML Regime model from {model_path}")
+            except Exception as e:
+                logger.error(f"Failed to load ML Regime model: {e}")
 
     def detect_regime(self, lookback_hours: int = 4) -> Dict:
         """
@@ -275,11 +287,33 @@ class MarketRegimeDetector:
         elif eq >= 0.40:
             score += 8
 
-        # Classification thresholds
-        if score >= 55:
-            regime = 'TRENDING'
+        # If we have an ML model, use it to classify!
+        if self.model is not None:
+            import pandas as pd
+            X = pd.DataFrame([{
+                'zone_escape_ratio': features['zone_escape_ratio'],
+                'direction_alignment': features['direction_alignment'],
+                'range_expansion': features['range_expansion'],
+                'eq_expansion_ratio': features['eq_expansion_ratio']
+            }])
+            
+            try:
+                pred = self.model.predict(X)[0]
+                prob = max(self.model.predict_proba(X)[0]) * 100
+                
+                regime = 'TRENDING' if pred == 1 else 'RANGING'
+                
+                # We overwrite the heuristic score with ML probability
+                score = prob
+            except Exception as e:
+                logger.error(f"ML prediction failed, falling back to heuristics: {e}")
+                regime = 'TRENDING' if score >= 55 else 'RANGING'
         else:
-            regime = 'RANGING'
+            # Classification thresholds (Phase 1 Heuristics)
+            if score >= 55:
+                regime = 'TRENDING'
+            else:
+                regime = 'RANGING'
 
         direction = features.get('trend_bias')
 
