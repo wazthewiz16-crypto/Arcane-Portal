@@ -223,6 +223,18 @@ async def run_scraper_and_detect():
             run_trade_radar()
         except Exception as e:
             print(f"⚠️ Error running trade radar: {e}")
+            
+    # Step 4: Weekly ML Model Retraining
+    # Run every Saturday at 5:00 AM EST (TradFi markets closed, lowest system usage)
+    if now.weekday() == 5 and now.hour == 5 and now.minute < 10:
+        print("\n[STEP 4] Initiating Weekly ML Model Retraining (Background Process)...")
+        try:
+            import subprocess
+            # Run asynchronously so it doesn't block this scraper run
+            subprocess.Popen([sys.executable, "ml_regime.py"])
+            print("✅ Weekly ML training job dispatched successfully.")
+        except Exception as e:
+            print(f"⚠️ Error dispatching ML retrain: {e}")
 
     print(f"\n✅ Streaming Complete! {total_signals} new signals generated.")
     
