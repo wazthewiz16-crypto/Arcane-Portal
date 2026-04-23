@@ -53,9 +53,9 @@ async def run_scraper_and_detect():
     print("\n[STEP 1] Updating existing signal statuses...")
     try:
         datastore.update_signal_statuses()
-        print("✅ Signal statuses monitored")
+        print("[OK] Signal statuses monitored")
     except Exception as e:
-        print(f"⚠️  Error updating statuses: {e}")
+        print(f"[WARN] Error updating statuses: {e}")
 
     # Step 2: Run Scraper & Detect in Stream
     print("\n[STEP 2] Running TradingView scraper (Streaming Mode)...")
@@ -232,9 +232,9 @@ async def run_scraper_and_detect():
             import subprocess
             # Run asynchronously so it doesn't block this scraper run
             subprocess.Popen([sys.executable, "ml_regime.py"])
-            print("✅ Weekly ML training job dispatched successfully.")
+            print("[OK] Weekly ML training job dispatched successfully.")
         except Exception as e:
-            print(f"⚠️ Error dispatching ML retrain: {e}")
+            print(f"[WARN] Error dispatching ML retrain: {e}")
 
     print(f"\n✅ Streaming Complete! {total_signals} new signals generated.")
     
@@ -243,4 +243,10 @@ async def run_scraper_and_detect():
     print("=" * 60)
 
 if __name__ == "__main__":
-    asyncio.run(run_scraper_and_detect())
+    try:
+        # Wrap the entire process in a 15-minute timeout to prevent headless Playwright 
+        # deadlocks in the Railway Docker container which causes silent cron failures.
+        asyncio.run(asyncio.wait_for(run_scraper_and_detect(), timeout=900))
+    except asyncio.TimeoutError:
+        print("❌ CRITICAL: Scraper run timed out after 15 minutes! Probable Playwright deadlock.")
+        sys.exit(1)

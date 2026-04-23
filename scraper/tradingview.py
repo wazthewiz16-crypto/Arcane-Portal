@@ -448,7 +448,12 @@ class TradingViewScraper:
                 
                 async def scrape_with_limit(tf):
                     async with semaphore:
-                        return await self.scrape_asset(context, asset, tf)
+                        try:
+                            # 90 second timeout per asset per timeframe to prevent Playwright deadlocks
+                            return await asyncio.wait_for(self.scrape_asset(context, asset, tf), timeout=90)
+                        except asyncio.TimeoutError:
+                            logger.error(f"Timeout scraping {asset['name']} {tf}")
+                            return None
 
                 # Create tasks for all timeframes
                 tasks = [scrape_with_limit(timeframe) for timeframe in tfs]
