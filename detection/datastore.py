@@ -29,8 +29,9 @@ class MangoDataStore:
         # Auto-expire orphaned ACTIVE signals on every startup
         try:
             self.expire_stale_signals()
+            self.cleanup_old_data()
         except Exception as e:
-            logger.warning(f"Could not expire stale signals: {e}")
+            logger.warning(f"Could not perform startup cleanup: {e}")
     
     def init_db(self):
         """Create tables if they don't exist"""
@@ -515,6 +516,36 @@ class MangoDataStore:
             """, (now, cutoff))
             if hasattr(result, 'rowcount') and result.rowcount:
                 logger.info(f"Expired {result.rowcount} stale ACTIVE signal(s) older than {max_age_days} days")
+
+    def cleanup_old_data(self):
+        """Auto-delete old images and scrapes to prevent database bloat"""
+        from datetime import datetime, timedelta
+        # Keep 7 days of signal images (for recent dashboard history)
+        img_cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        # Keep 60 days of scrapes (ML regime needs max 45 days)
+        scrape_cutoff = (datetime.utcnow() - timedelta(days=60)).isoformat()
+        
+        try:
+            with self.get_connection() as conn:
+                # 1. Delete signal images for old signals (reduces 172MB+ bloat)
+                res1 = self._execute_query(conn, """
+                    DELETE FROM signal_images 
+                    WHERE signal_id IN (
+                        SELECT id FROM signals WHERE entry_time < ?
+                    )
+                """, (img_cutoff,))
+                if hasattr(res1, 'rowcount') and res1.rowcount and res1.rowcount > 0:
+                    logger.info(f"Cleaned up {res1.rowcount} old signal images")
+                
+                # 2. Delete old scrapes (reduces 32MB+ bloat)
+                res2 = self._execute_query(conn, """
+                    DELETE FROM scrapes WHERE timestamp < ?
+                """, (scrape_cutoff,))
+                if hasattr(res2, 'rowcount') and res2.rowcount and res2.rowcount > 0:
+                    logger.info(f"Cleaned up {res2.rowcount} old scrapes")
+                    
+        except Exception as e:
+            logger.error(f"Data cleanup error: {e}")
     
     def get_signal_history(self, hours=24):
         """Get signal history for the last N hours"""
