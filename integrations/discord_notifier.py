@@ -320,6 +320,44 @@ class DiscordNotifier:
             logger.error(f"Failed to send error alert: {e}")
             return False
 
+    def send_ml_retrain_alert(self, metrics: dict) -> bool:
+        """Send a weekly ML retrain summary"""
+        if not self.webhook_url:
+            return False
+            
+        try:
+            total = metrics.get('total_samples', 0)
+            acc = metrics.get('accuracy', 0.0)
+            
+            # Formatting feature importances
+            imp = metrics.get('importances', {})
+            imp_lines = [f"• **{k}**: {v:.1%}" for k, v in list(imp.items())[:3]]
+            imp_str = "\n".join(imp_lines) if imp_lines else "N/A"
+            
+            embed = {
+                "title": "🧠 ML Regime Model Retrained",
+                "description": (
+                    f"The weekly automated ML retraining process has completed successfully.\n\n"
+                    f"**Training Data:** {total} 4H samples\n"
+                    f"**Test Accuracy:** {acc:.1%}\n\n"
+                    f"**Top Predictive Features:**\n{imp_str}"
+                ),
+                "color": 0x9B59B6,  # Purple
+                "footer": {
+                    "text": "Arcane Auto-Optimizer • Machine Learning"
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            response = requests.post(
+                self.webhook_url,
+                json={"embeds": [embed]},
+                timeout=10
+            )
+            return response.status_code in [200, 204]
+        except Exception as e:
+            logger.error(f"Failed to send ML retrain alert: {e}")
+            return False
 
 def send_signal_to_discord(signal: Dict) -> bool:
     """

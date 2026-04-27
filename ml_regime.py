@@ -248,6 +248,21 @@ def train_model(features_df):
     joblib.dump(model, model_path)
     logger.info(f"\nModel saved successfully to {model_path}")
     
+    # Send Discord Alert
+    metrics_dict = {
+        'total_samples': len(features_df),
+        'accuracy': accuracy_score(y_test, y_pred),
+        'importances': imp.to_dict()
+    }
+    
+    try:
+        from integrations.discord_notifier import DiscordNotifier
+        notifier = DiscordNotifier()
+        notifier.send_ml_retrain_alert(metrics_dict)
+        logger.info("Sent ML retrain alert to Discord.")
+    except Exception as e:
+        logger.error(f"Failed to send ML retrain Discord alert: {e}")
+    
     return model
 
 if __name__ == "__main__":
