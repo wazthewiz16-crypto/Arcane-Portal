@@ -15,8 +15,23 @@ class TradingViewScraper:
     def __init__(self, state_file=STATE_FILE):
         self.state_file = Path(state_file)
         
-        # Support cloud deployment: Restore state from Env Var if file missing
         import os
+        import json
+        from detection.datastore import MangoDataStore
+        
+        # Try to restore from Postgres DataStore first (Rolling Sessions feature)
+        try:
+            self.datastore = MangoDataStore()
+            db_state = self.datastore.get_setting("TV_STATE")
+            if db_state:
+                logger.info("Restoring TradingView session state from Database...")
+                with open(self.state_file, "w") as f:
+                    f.write(db_state)
+        except Exception as e:
+            logger.error(f"Failed to check DB for TV_STATE: {e}")
+            self.datastore = None
+
+        # Support cloud deployment: Restore state from Env Var if file missing
         if not self.state_file.exists() and os.getenv("TRADINGVIEW_STATE_JSON"):
             try:
                 logger.info("Restoring TradingView session state from environment variable...")
@@ -364,6 +379,18 @@ class TradingViewScraper:
                 if idx < total_assets:
                     await asyncio.sleep(0.5)
             
+            # Save refreshed state back to DB for rolling session
+            try:
+                import json
+                new_state = await context.storage_state()
+                if self.datastore:
+                    self.datastore.set_setting("TV_STATE", json.dumps(new_state))
+                # Also save locally so next run picks it up immediately
+                with open(self.state_file, "w") as f:
+                    json.dump(new_state, f)
+            except Exception as e:
+                logger.error(f"Failed to save rolling session state: {e}")
+
             await context.close()
             await browser.close()
         
@@ -471,5 +498,17 @@ class TradingViewScraper:
                 if asset_results:
                     yield asset_results
             
+            # Save refreshed state back to DB for rolling session
+            try:
+                import json
+                new_state = await context.storage_state()
+                if self.datastore:
+                    self.datastore.set_setting("TV_STATE", json.dumps(new_state))
+                # Also save locally so next run picks it up immediately
+                with open(self.state_file, "w") as f:
+                    json.dump(new_state, f)
+            except Exception as e:
+                logger.error(f"Failed to save rolling session state: {e}")
+                
             await context.close()
             await browser.close()
