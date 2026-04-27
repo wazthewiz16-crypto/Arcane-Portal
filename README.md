@@ -7,7 +7,7 @@
 ## Features
 
 - 🔮 **Automated Signal Detection**: Swing and scalp signals using precise two-timeframe alignment
-- 🧠 **Market Regime Detection**: Heuristic-based system that classifies market conditions as TRENDING or RANGING and dynamically adjusts filters — wider breakout capture on trend days, standard parameters when ranging.
+- 🧠 **Market Regime Detection**: Machine Learning (Random Forest) based system trained on historical 4H rolling data that classifies market conditions as TRENDING or RANGING and dynamically adjusts filters. The model automatically retrains itself every Saturday at 5:00 AM EST and pushes its accuracy metrics and feature importances straight to Discord!
 - 🤖 **Auto-Optimizer**: Runs continually to dynamically adjust confidence thresholds up or down based on recent win rates, frequency, and detected market regime, preventing dry spells and system death-spirals.
 - 📡 **Trade Radar**: Automatically pushes the top 5 "Prime" active trades (ideal pullbacks and near-entry trades) to Discord 4 times a day, allowing you to catch high-probability setups without watching charts.
 - 📊 **Real-time Dashboard**: Beautiful Streamlit interface with live updates, active signals, historical performance, dynamic levels (15m through 4d), and system health metrics.
@@ -76,7 +76,13 @@ HEADLESS_BROWSER=true
 
 ### 3. Add TradingView State
 
-Copy your `tv_state.json` file to the project root. This file contains your active TradingView session cookies required for headless scraping.
+Run the automated interactive login script to securely authenticate your TradingView session:
+```bash
+python interactive_login.py
+```
+A browser will open—log into TradingView, return to the terminal, and press ENTER. The script will securely rip the active session cookies and upload them directly to your Railway PostgreSQL database. 
+
+The background scraper pulls the authentication state from the database and uses **Rolling Sessions** (it re-uploads its fresh cookies back to the database at the end of every hour) so your TradingView session theoretically never expires!
 
 ### 4. Run the System
 
