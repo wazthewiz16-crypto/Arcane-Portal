@@ -34,6 +34,7 @@
   - **ALT_SEASON** (BTC.D ↓ + BTC ↑): Altcoin SHORT signals blocked; LONG signals get +5 confidence bonus.
   - **ALT_NEUTRAL / ALT_SLIGHTLY_BULLISH**: Small confidence adjustments with no hard blocks.
   - BTC itself and all TradFi assets are exempt from this filter.
+- 🧹 **Automated Database Maintenance**: The system runs a silent self-cleaning protocol on every startup. It permanently deletes massive Discord screenshots older than 7 days and raw scraper data older than 60 days, ensuring your Railway PostgreSQL database stays highly optimized and never breaches the 500 MB capacity limit.
 - ☁️ **Cloud Native**: Deployed on Railway using a Neon Serverless PostgreSQL database.
 
 ---
