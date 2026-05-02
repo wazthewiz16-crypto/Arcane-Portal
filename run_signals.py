@@ -227,14 +227,20 @@ async def run_scraper_and_detect():
     # Step 4: Weekly ML Model Retraining
     # Run every Saturday at 5:00 AM EST (TradFi markets closed, lowest system usage)
     if now.weekday() == 5 and now.hour == 5 and now.minute < 10:
-        print("\n[STEP 4] Initiating Weekly ML Model Retraining (Background Process)...")
+        print("\n[STEP 4] Initiating Weekly ML Model Retraining...")
         try:
-            import subprocess
-            # Run asynchronously so it doesn't block this scraper run
-            subprocess.Popen([sys.executable, "ml_regime.py"])
-            print("[OK] Weekly ML training job dispatched successfully.")
+            from ml_regime import fetch_and_prepare_data, generate_features, train_model
+            df = fetch_and_prepare_data()
+            feats = generate_features(df)
+            if not feats.empty:
+                train_model(feats)
+                print("[OK] Weekly ML retraining completed successfully.")
+            else:
+                print("[WARN] Not enough data to retrain ML model yet.")
         except Exception as e:
-            print(f"[WARN] Error dispatching ML retrain: {e}")
+            print(f"[WARN] Error during ML retrain: {e}")
+            import traceback
+            traceback.print_exc()
 
     print(f"\n✅ Streaming Complete! {total_signals} new signals generated.")
     
