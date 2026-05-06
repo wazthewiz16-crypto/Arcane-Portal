@@ -29,6 +29,7 @@ class MangoDataStore:
         # Auto-expire orphaned ACTIVE signals on every startup
         try:
             self.expire_stale_signals()
+            self.expire_stale_scalps()
             self.cleanup_old_data()
         except Exception as e:
             logger.warning(f"Could not perform startup cleanup: {e}")
@@ -516,6 +517,28 @@ class MangoDataStore:
             """, (now, cutoff))
             if hasattr(result, 'rowcount') and result.rowcount:
                 logger.info(f"Expired {result.rowcount} stale ACTIVE signal(s) older than {max_age_days} days")
+
+    def expire_stale_scalps(self, max_age_hours: int = 12):
+        """Auto-expire ACTIVE scalp signals older than max_age_hours.
+        
+        Scalp trades (4H→15m, 1H→15m) are designed to resolve within hours.
+        If they haven't hit TP or SL within 12 hours, the setup is invalidated
+        and keeping them open just clutters the dashboard. This lets the user
+        focus on swing trades without worrying about stale scalps.
+        """
+        from datetime import datetime, timedelta
+        cutoff = (datetime.utcnow() - timedelta(hours=max_age_hours)).isoformat()
+        now = datetime.utcnow().isoformat()
+        with self.get_connection() as conn:
+            result = self._execute_query(conn, """
+                UPDATE signals
+                SET status = 'EXPIRED', updated_at = ?
+                WHERE status = 'ACTIVE'
+                AND signal_type LIKE '%SCALP%'
+                AND entry_time < ?
+            """, (now, cutoff))
+            if hasattr(result, 'rowcount') and result.rowcount and result.rowcount > 0:
+                logger.info(f"Auto-expired {result.rowcount} scalp signal(s) older than {max_age_hours} hours")
 
     def cleanup_old_data(self):
         """Auto-delete old images and scrapes to prevent database bloat"""
