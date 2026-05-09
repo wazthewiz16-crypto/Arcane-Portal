@@ -216,7 +216,7 @@ async def run_scraper_and_detect():
         
     # Step 3: Trade Radar (Runs 4 times a day)
     # The cron starts explicitly on the 10th/15th minute mark, we want the start of the hour run.
-    if now.hour in [8, 12, 16, 20] and now.minute < 10:
+    if now.hour in [7, 13, 18, 22] and now.minute < 10:
         print("\n[STEP 3] Running Trade Radar (scheduled hour)...")
         try:
             from trade_radar import run_trade_radar
