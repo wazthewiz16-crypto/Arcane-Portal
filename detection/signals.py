@@ -265,14 +265,18 @@ class MangoSignalDetector:
                 signal['btc_context'] = verdict
                 return signal
 
-        elif verdict == 'ALT_SLIGHTLY_BULLISH':
-            if is_long:
+        elif verdict == 'ALT_SLIGHTLY_BULLISH' or verdict == 'ALT_NEUTRAL' or verdict == 'NEUTRAL':
+            # Even in neutral dominance environments, we NEVER short altcoins if Bitcoin itself is in an explicit uptrend.
+            # Shorting alts while BTC pumps is a surefire way to get liquidated.
+            btc_dir = btc_context.get('btc_dir', 'NEUTRAL')
+            if not is_long and btc_dir == 'LONG':
+                logger.info(f"🚫 BTC context BLOCKED {name} SHORT (BTC itself is explicitly LONG - No counter-trend shorts allowed)")
+                return None
+                
+            if is_long and verdict == 'ALT_SLIGHTLY_BULLISH':
                 signal['confidence'] = min(signal['confidence'] + modifier, 100)
+                
             signal['btc_context'] = verdict
-            return signal
-
-        else:
-            # ALT_NEUTRAL or NEUTRAL — no change
             return signal
 
     def detect_signals_for_asset(self, asset_name: str) -> List[Dict]:
@@ -329,14 +333,21 @@ class MangoSignalDetector:
             if not htf_direction or htf_direction == 'NEUTRAL':
                 continue  # Skip neutral trends (price inside Mango Dynamic)
             
-            # --- Grandmaster Filter (Daily Trend Check) ---
-            # Swing must not fight the Daily trend. NEUTRAL daily is OK.
+            # --- Grandmaster Filter (Daily & 4D Macro Trend Check) ---
+            # Swing trades must never fight the Daily or 4D (Weekly) trend. 
+            # NEUTRAL is OK, but explicitly OPPOSITE is forbidden.
             daily_data = timeframes.get('1d')
+            weekly_data = timeframes.get('4d')
+            
             if daily_data:
                 daily_dir = self._get_htf_direction(daily_data)
-                # Only reject if Daily is explicitly OPPOSITE (not just neutral)
                 if daily_dir and daily_dir != 'NEUTRAL' and daily_dir != htf_direction:
-                    continue
+                    continue  # Fighting the Daily trend
+                    
+            if weekly_data:
+                weekly_dir = self._get_htf_direction(weekly_data)
+                if weekly_dir and weekly_dir != 'NEUTRAL' and weekly_dir != htf_direction:
+                    continue  # Fighting the Weekly/4D trend
             # ---------------------------------------------
 
             # --- Swing LTF Ribbon Confirmation ---
@@ -464,16 +475,16 @@ class MangoSignalDetector:
                     continue
             # ---------------------------------------------
 
-            # --- 4D Trend Agreement (SCALP_LONG only) ---
-            # Scalp longs must align with the weekly (4D) trend direction.
-            # Prevents longing into a macro downtrend via short-term bounces.
-            # This filter killed 18% WR SCALP_LONG bleeding in backtesting.
-            if htf_direction == 'LONG':
-                weekly_data = timeframes.get('4d')
-                if weekly_data:
-                    weekly_dir = self._get_htf_direction(weekly_data)
-                    if weekly_dir == 'SHORT':
-                        continue  # Don't scalp long against a bearish 4D trend
+            # --- 4D Trend Agreement (Macro Alignment) ---
+            # Scalps must never fight the weekly (4D) trend direction.
+            # Prevents longing into a macro downtrend, or shorting into a macro bull market.
+            weekly_data = timeframes.get('4d')
+            if weekly_data:
+                weekly_dir = self._get_htf_direction(weekly_data)
+                if htf_direction == 'LONG' and weekly_dir == 'SHORT':
+                    continue  # Don't scalp long against a bearish 4D trend
+                if htf_direction == 'SHORT' and weekly_dir == 'LONG':
+                    continue  # Don't scalp short against a bullish 4D trend
             # ------------------------------------------
 
             # --- LTF Ribbon Confirmation (Critical) ---
