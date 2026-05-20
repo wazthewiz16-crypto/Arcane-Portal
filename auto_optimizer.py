@@ -272,11 +272,20 @@ class AutoOptimizer:
         #   TP_HIT  → +RR (e.g. 2.75R swing win = +2.75% for 1% risk)
         #   SL_HIT  → -1.0 (always lose 1R on a stop-loss)
         # This gives a normalised "R" total — not dollar PnL (which depends on position size).
-        all_24h = self.datastore.get_signal_history(hours=hours)
+        from datetime import datetime, timedelta
+        cutoff_24h = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+        with self.datastore.get_connection() as conn:
+            closed_24h = self.datastore._fetch_query(conn, """
+                SELECT * FROM signals
+                WHERE status IN ('TP_HIT', 'SL_HIT')
+                AND updated_at >= ?
+                ORDER BY updated_at DESC
+            """, (cutoff_24h,))
+
         total_r = 0.0
         tp_count = 0
         sl_count = 0
-        for sig in all_24h:
+        for sig in closed_24h:
             rr = sig.get('rr_ratio') or 0
             if sig['status'] == 'TP_HIT':
                 total_r += float(rr)
@@ -361,6 +370,17 @@ class AutoOptimizer:
         # ── 24h PnL Block ────────────────────────────────────────────────────
         pnl_emoji = "📈" if total_r >= 0 else "📉"
         msg += f"\n{pnl_emoji} **24h PnL: {pnl_str}** ({tp_count} TP / {sl_count} SL)\n"
+        if closed_24h:
+            for sig in closed_24h[:8]:
+                direction = "🟢 L" if "LONG" in sig['signal_type'] else "🔴 S"
+                trade_type = "Swing" if "SWING" in sig['signal_type'] else "Scalp"
+                outcome = "TP" if sig['status'] == 'TP_HIT' else "SL"
+                rr_val = f"+{sig['rr_ratio']:.2f}R" if sig['status'] == 'TP_HIT' else "-1.00R"
+                msg += f"• {direction} **{sig['asset_name']}** {trade_type} ({sig['htf']}→{sig['ltf']}) -> **{outcome}** ({rr_val})\n"
+            if len(closed_24h) > 8:
+                msg += f"• *(+{len(closed_24h) - 8} more...)*\n"
+        else:
+            msg += "• *No trades hit TP/SL in the last 24h*\n"
         # ─────────────────────────────────────────────────────────────────────
 
         # Regime info
