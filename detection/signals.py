@@ -487,16 +487,14 @@ class MangoSignalDetector:
                     continue  # Don't scalp short against a bullish 4D trend
             # ------------------------------------------
 
-            # --- LTF Ribbon Confirmation (Critical) ---
-            # The 15m Mango Dynamic ribbon *itself* must agree with the trade direction.
-            # Without this, the system would short an asset whose 15m ribbon is still
-            # bullish just because the 4H is bearish — a contradictory, high-risk entry.
-            # e.g. ADA SHORT 4H→15m fired when the 15m showed Trend: Bullish (D1 > D2)
+            # --- LTF Ribbon Confirmation (Critical / Strict) ---
+            # The 15m Mango Dynamic ribbon *itself* must EXPLICITLY agree with the trade direction.
+            # NEUTRAL is NOT allowed — it means the ribbon has not fully confirmed the scalp momentum yet.
             ltf_ribbon_dir = self._get_htf_direction(ltf_data)
-            if htf_direction == 'LONG' and ltf_ribbon_dir == 'SHORT':
-                continue  # Don't long if 15m ribbon is bearish
-            if htf_direction == 'SHORT' and ltf_ribbon_dir == 'LONG':
-                continue  # Don't short if 15m ribbon is still bullish
+            if htf_direction == 'LONG' and ltf_ribbon_dir != 'LONG':
+                continue  # 15m ribbon must be explicitly bullish for a scalp LONG
+            if htf_direction == 'SHORT' and ltf_ribbon_dir != 'SHORT':
+                continue  # 15m ribbon must be explicitly bearish for a scalp SHORT
             # ------------------------------------------
             
             # --- Candle Color Check (Scalp Only) ---
@@ -514,7 +512,7 @@ class MangoSignalDetector:
                     continue # Skip Short if candle is Green/Doji
             # ---------------------------------------
             
-            ltf_entry = self._check_ltf_entry(ltf_data, htf_direction)
+            ltf_entry = self._check_ltf_entry(ltf_data, htf_direction, is_scalp=True)
             if not ltf_entry['valid']:
                 continue
 
@@ -703,7 +701,7 @@ class MangoSignalDetector:
             # BLUE / ORANGE — compressing regardless of direction → block
             return {'expanding': False, 'confidence_bonus': 0, 'color': color}
     
-    def _check_ltf_entry(self, ltf_data: Dict, direction: str) -> Dict:
+    def _check_ltf_entry(self, ltf_data: Dict, direction: str, is_scalp: bool = False) -> Dict:
         """
         Check if LTF shows valid entry
         
@@ -752,16 +750,18 @@ class MangoSignalDetector:
                 return {'valid': False, 'reason': 'Doji/indecision candle (weak body)'}
         
         # 3. Momentum Confirmation (Close position)
-        # Only reject truly terrible closes (bottom/top 20% of candle)
-        # Loosened from 35% because pullback candles naturally close in the lower range
+        # Only reject truly terrible closes
         if candle_range > 0:
             close_position = (price - low) / candle_range
             
-            if direction == 'LONG' and close_position < 0.20:
-                return {'valid': False, 'reason': 'Weak close for long (bottom 20%)'}
+            # Stricter momentum check for scalps (35%), looser for swings (20%)
+            min_close_pos = 0.35 if is_scalp else 0.20
+            
+            if direction == 'LONG' and close_position < min_close_pos:
+                return {'valid': False, 'reason': f'Weak close for long (bottom {min_close_pos*100:.0f}%)'}
                 
-            if direction == 'SHORT' and close_position > 0.80:
-                return {'valid': False, 'reason': 'Weak close for short (top 80%)'}
+            if direction == 'SHORT' and close_position > (1.0 - min_close_pos):
+                return {'valid': False, 'reason': f'Weak close for short (top {min_close_pos*100:.0f}%)'}
 
         # 4. Optimal Entry Zone Filter — REMOVED
         # If price is inside the Mango Dynamic zone (between entry_down and entry_up),
@@ -795,8 +795,8 @@ class MangoSignalDetector:
                 valid = True
                 
             # OR if Bounce + close to top (dynamic breakout capture)
-            # Widens to 1% on trending days to capture breakouts
-            elif is_bounce and price > entry_up and (price - entry_up) / entry_up < breakout_pct:
+            # For swings, allow near-entry breakout capture. For scalps, strictly require in-zone.
+            elif not is_scalp and is_bounce and price > entry_up and (price - entry_up) / entry_up < breakout_pct:
                 near_entry = True
                 valid = True
                     
@@ -813,7 +813,7 @@ class MangoSignalDetector:
                 valid = True
                 
             # OR if Bounce + close to bottom (dynamic breakout capture)
-            elif is_bounce and price < entry_down and (entry_down - price) / entry_down < breakout_pct:
+            elif not is_scalp and is_bounce and price < entry_down and (entry_down - price) / entry_down < breakout_pct:
                 near_entry = True
                 valid = True
         
