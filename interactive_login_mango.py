@@ -3,8 +3,15 @@ import asyncio
 import json
 import logging
 import os
+import sys
+import io
 from playwright.async_api import async_playwright
 from dotenv import load_dotenv
+
+# Force UTF-8 encoding for Windows consoles supporting emojis
+if sys.platform.startswith('win'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # Load Env
 load_dotenv(override=True)
