@@ -185,6 +185,19 @@ class DiscordNotifier:
             f"⏰ Entry Time: {entry_time}"
         ]
         
+        # Add Mango Research Premium Confluence if available
+        confluence = signal.get('mango_confluence')
+        if confluence:
+            lines += [
+                "━━━━━━━━━━━━━━━━━━",
+                "🥭 **Mango Research Premium Confluence:**",
+                f"   • Trend Badge: {confluence.get('trend_badge')}",
+                f"   • Volatility Gauge: ⚡ {confluence.get('volatility')}/100"
+            ]
+            flags = confluence.get('flags')
+            if flags:
+                lines.append(f"   • Technical Flags: 📈 {', '.join(flags)}")
+                
         return "\n".join(lines)
     
     def _create_embed(self, signal: Dict, message: str) -> Dict:

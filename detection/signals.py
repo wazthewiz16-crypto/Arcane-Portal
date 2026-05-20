@@ -105,12 +105,14 @@ class MangoSignalDetector:
                 direction = 'LONG' if is_long_signal else 'SHORT'
                 key = (name, 'SWING', direction)
                 if key not in seen_this_run:
-                    seen_this_run.add(key)
-                    signals.append(swing_signal)
-                    # Update running count so subsequent assets in the same batch respect the cap
-                    if swing_signal.get('asset_type') == 'crypto':
-                        if is_long_signal: active_crypto_longs += 1
-                        else:              active_crypto_shorts += 1
+                    swing_signal = self._validate_mango_confluence(name, swing_signal)
+                    if swing_signal:
+                        seen_this_run.add(key)
+                        signals.append(swing_signal)
+                        # Update running count so subsequent assets in the same batch respect the cap
+                        if swing_signal.get('asset_type') == 'crypto':
+                            if is_long_signal: active_crypto_longs += 1
+                            else:              active_crypto_shorts += 1
                 else:
                     logger.debug(f"Dedup: suppressed duplicate {swing_signal['signal_type']} for {name} (already queued this run)")
             
@@ -133,11 +135,13 @@ class MangoSignalDetector:
                 direction = 'LONG' if is_long_signal else 'SHORT'
                 key = (name, 'SCALP', direction)
                 if key not in seen_this_run:
-                    seen_this_run.add(key)
-                    signals.append(scalp_signal)
-                    if scalp_signal.get('asset_type') == 'crypto':
-                        if is_long_signal: active_crypto_longs += 1
-                        else:              active_crypto_shorts += 1
+                    scalp_signal = self._validate_mango_confluence(name, scalp_signal)
+                    if scalp_signal:
+                        seen_this_run.add(key)
+                        signals.append(scalp_signal)
+                        if scalp_signal.get('asset_type') == 'crypto':
+                            if is_long_signal: active_crypto_longs += 1
+                            else:              active_crypto_shorts += 1
                 else:
                     logger.debug(f"Dedup: suppressed duplicate {scalp_signal['signal_type']} for {name} (already queued this run)")
         
@@ -294,15 +298,79 @@ class MangoSignalDetector:
         swing_signal = self._detect_swing_signal(asset_name, timeframes)
         min_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING))
         if swing_signal and swing_signal['confidence'] >= min_swing:
-            signals.append(swing_signal)
+            swing_signal = self._validate_mango_confluence(asset_name, swing_signal)
+            if swing_signal:
+                signals.append(swing_signal)
         
         # Scalp signals
         scalp_signal = self._detect_scalp_signal(asset_name, timeframes)
         min_scalp = float(self.datastore.get_setting("MIN_CONFIDENCE_SCALP", settings.MIN_CONFIDENCE_SCALP))
         if scalp_signal and scalp_signal['confidence'] >= min_scalp:
-            signals.append(scalp_signal)
+            scalp_signal = self._validate_mango_confluence(asset_name, scalp_signal)
+            if scalp_signal:
+                signals.append(scalp_signal)
             
         return signals
+
+    def _validate_mango_confluence(self, asset_name: str, signal: Dict) -> Optional[Dict]:
+        """
+        Validate signal against the premium Mango Research Dashboard data (Opposite-trend blocking).
+        
+        Rules:
+        - If confluence is disabled: passes through immediately.
+        - If strict mode is disabled (normal): if asset is not in dashboard data, passes through.
+        - If strict mode is enabled: if asset is not in dashboard data, blocks.
+        - If asset is in dashboard data:
+          - A LONG signal is BLOCKED if the dashboard trend is SHORT.
+          - A SHORT signal is BLOCKED if the dashboard trend is LONG.
+          - If the dashboard trend is NEUTRAL or matches, it passes.
+        """
+        try:
+            from scraper.mango_dashboard import MangoDashboardScraper
+            mango = MangoDashboardScraper()
+            
+            if not mango.is_enabled():
+                return signal
+                
+            # Get cached confluence details
+            confluence = mango.get_cached_confluence(asset_name)
+            
+            # Check strict mode settings
+            strict_str = self.datastore.get_setting("MANGO_CONFLUENCE_STRICT")
+            import os
+            is_strict = str(strict_str).lower() == 'true' if strict_str is not None else os.getenv("MANGO_CONFLUENCE_STRICT", "false").lower() == "true"
+            
+            if not confluence:
+                if is_strict:
+                    logger.info(f"🚫 Mango Confluence: blocked {asset_name} {signal['signal_type']} - asset not found in dashboard cache (strict mode).")
+                    return None
+                else:
+                    logger.info(f"ℹ️  Mango Confluence: {asset_name} not found in dashboard cache. Passing through (normal mode).")
+                    return signal
+            
+            trend_badge = confluence.get('trend', 'NEUTRAL').upper()
+            sig_direction = 'LONG' if 'LONG' in signal['signal_type'] else 'SHORT'
+            
+            # Opposite-Trend Blocking
+            if sig_direction == 'LONG' and trend_badge == 'SHORT':
+                logger.info(f"🚫 Mango Confluence BLOCKED: {asset_name} LONG signal fights SHORT dashboard trend badge!")
+                return None
+            elif sig_direction == 'SHORT' and trend_badge == 'LONG':
+                logger.info(f"🚫 Mango Confluence BLOCKED: {asset_name} SHORT signal fights LONG dashboard trend badge!")
+                return None
+                
+            # Attach confluence metrics to the signal dictionary for Discord embeds
+            signal['mango_confluence'] = {
+                'trend_badge': '🟢 LONG' if trend_badge == 'LONG' else ('🔴 SHORT' if trend_badge == 'SHORT' else '🟣 NEUTRAL'),
+                'volatility': confluence.get('volatility', 50),
+                'flags': confluence.get('flags', [])
+            }
+            logger.info(f"✅ Mango Confluence CONFIRMED: {asset_name} {signal['signal_type']} matches/aligns with {trend_badge} dashboard badge.")
+            return signal
+            
+        except Exception as e:
+            logger.error(f"Error running Mango confluence check: {e}")
+            return signal
     
     
     def _detect_swing_signal(self, name: str, timeframes: Dict, sl_buffer: float = 0.015) -> Optional[Dict]:

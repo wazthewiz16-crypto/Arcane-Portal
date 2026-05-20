@@ -47,6 +47,41 @@ async def run_scraper_and_detect():
     detector = MangoSignalDetector(datastore)
     notifier = DiscordNotifier()
     
+    # --- Mango Research Premium Dashboard Scraper (2-hour rate-limit cache update) ---
+    try:
+        from scraper.mango_dashboard import MangoDashboardScraper
+        from datetime import datetime
+        mango_scraper = MangoDashboardScraper()
+        
+        if mango_scraper.is_enabled():
+            print("\n[MANGO DASHBOARD] Confluence verification is ENABLED.")
+            last_update_str = datastore.get_setting("MANGO_DASHBOARD_LAST_UPDATE")
+            should_scrape = True
+            
+            if last_update_str:
+                try:
+                    last_update = datetime.fromisoformat(last_update_str)
+                    elapsed_hours = (datetime.utcnow() - last_update).total_seconds() / 3600.0
+                    if elapsed_hours < 2.0:
+                        print(f"[MANGO DASHBOARD] Using cached data (updated {elapsed_hours:.2f} hours ago — rate limit 2 hours).")
+                        should_scrape = False
+                except Exception as e:
+                    print(f"[MANGO DASHBOARD] Error parsing last update timestamp: {e}")
+                    
+            if should_scrape:
+                print("[MANGO DASHBOARD] Updating premium dashboard cache (2-hour scheduler window triggered)...")
+                success = await mango_scraper.scrape_dashboard()
+                if success:
+                    datastore.set_setting("MANGO_DASHBOARD_LAST_UPDATE", datetime.utcnow().isoformat())
+                    print("[MANGO DASHBOARD] Cache successfully refreshed!")
+                else:
+                    print("[MANGO DASHBOARD] Scraper run failed. Using existing cache if available.")
+        else:
+            print("\n[MANGO DASHBOARD] Confluence verification is disabled (MANGO_CONFLUENCE_ENABLED != True).")
+    except Exception as e:
+        print(f"[MANGO DASHBOARD] Initialization or scraping error: {e}")
+    # ---------------------------------------------------------------------------------
+    
     # Step 1: Run scraper
     # Step 1: Initialize
     # Update existing statuses first (with whatever data we have)
