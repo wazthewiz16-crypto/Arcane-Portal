@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from datetime import datetime
 from playwright.async_api import async_playwright
@@ -61,8 +62,12 @@ class MangoDashboardScraper:
             
         logger.info("Starting Mango Research Dashboard scraper...")
         
-        # In-memory storage for intercepted JSON data
+        # In-memory storage for intercepted data
         intercepted_data = {}
+        intercepted_global = {
+            "market_trend": "NEUTRAL",
+            "market_volatility": 50
+        }
         
         async with async_playwright() as p:
             # Launch headless browser
@@ -88,12 +93,24 @@ class MangoDashboardScraper:
                             payload = await response.json()
                             
                             # Standardize sniffing keys: looking for objects with trend or volatility indications
-                            # Often the response will contain lists of coins
                             found_valid = False
                             
                             def scan_for_trends(obj):
                                 nonlocal found_valid
                                 if isinstance(obj, dict):
+                                    # Scan for global market metrics in root or sub-objects
+                                    for k, v in obj.items():
+                                        k_low = k.lower()
+                                        if "market_trend" in k_low or "global_trend" in k_low or "overall_trend" in k_low:
+                                            v_str = str(v).upper()
+                                            if any(t in v_str for t in ['LONG', 'SHORT', 'NEUTRAL', 'BULLISH', 'BEARISH']):
+                                                intercepted_global['market_trend'] = 'LONG' if 'LONG' in v_str or 'BULL' in v_str else ('SHORT' if 'SHORT' in v_str or 'BEAR' in v_str else 'NEUTRAL')
+                                        elif "market_vol" in k_low or "global_vol" in k_low or "overall_vol" in k_low:
+                                            try:
+                                                intercepted_global['market_volatility'] = int(v)
+                                            except ValueError:
+                                                pass
+                                                
                                     # Does this dictionary have keys resembling coin signals?
                                     if 'symbol' in obj or 'ticker' in obj:
                                         symbol = (obj.get('symbol') or obj.get('ticker', '')).upper()
@@ -105,7 +122,7 @@ class MangoDashboardScraper:
                                                 clean_sym = symbol.replace('USDT', '').replace('.P', '').split(':')[0]
                                                 intercepted_data[clean_sym] = {
                                                     'trend': 'LONG' if 'LONG' in trend or 'BULL' in trend else ('SHORT' if 'SHORT' in trend or 'BEAR' in trend else 'NEUTRAL'),
-                                                    'volatility': int(obj.get('volatility') or obj.get('vol') or 0),
+                                                    'volatility': int(obj.get('volatility') or obj.get('vol') or 50),
                                                     'flags': obj.get('flags') or obj.get('indicators') or []
                                                 }
                                                 found_valid = True
@@ -145,15 +162,63 @@ class MangoDashboardScraper:
             except Exception as e:
                 logger.warning(f"Could not take dashboard screenshot: {e}")
                 
-            # --- Fallback DOM Parser ---
-            # If our API sniffing did not find any signals, parse the DOM directly
+            # --- Fallback & Global DOM Parser ---
             dom_data = {}
-            if not intercepted_data:
-                logger.info("Sniffer found no API trend signals. Falling back to DOM parsing...")
-                try:
-                    # Capture inner text of the entire document to extract standard coin names and trend words
-                    body_text = await page.inner_text("body")
-                    
+            dom_market_trend = "NEUTRAL"
+            dom_market_volatility = 50
+            
+            try:
+                # Capture inner text of the entire document to extract standard coin names, trend words, and global metrics
+                body_text = await page.inner_text("body")
+                
+                # Regex for Market Volatility (e.g. Market Volatility: 65% or Market Volatility 65)
+                vol_match = re.search(r'(?:market|overall|global|regime)\s+volatility\s*(?::|)?\s*(\d+)', body_text, re.IGNORECASE)
+                if vol_match:
+                    try:
+                        dom_market_volatility = int(vol_match.group(1))
+                        logger.info(f"Parsed market volatility from DOM regex: {dom_market_volatility}")
+                    except Exception:
+                        pass
+                        
+                # Regex for Market Trend (e.g. Market Trend: Bullish, Market Trend Long)
+                trend_match = re.search(r'(?:market|overall|global|regime)\s+trend\s*(?::|)?\s*(bullish|bearish|neutral|long|short)', body_text, re.IGNORECASE)
+                if trend_match:
+                    t_str = trend_match.group(1).upper()
+                    dom_market_trend = 'LONG' if 'LONG' in t_str or 'BULL' in t_str else ('SHORT' if 'SHORT' in t_str or 'BEAR' in t_str else 'NEUTRAL')
+                    logger.info(f"Parsed market trend from DOM regex: {dom_market_trend}")
+                
+                body_lines = body_text.split('\n')
+                # Alternate scan for "Market Trend" card/layout
+                for idx, line in enumerate(body_lines):
+                    line_upper = line.upper()
+                    if "MARKET TREND" in line_upper or "OVERALL TREND" in line_upper or "OVERALL MARKET TREND" in line_upper:
+                        block = " ".join(body_lines[idx:idx+3]).upper()
+                        if "BULL" in block or "LONG" in block or "🟢" in block:
+                            dom_market_trend = "LONG"
+                        elif "BEAR" in block or "SHORT" in block or "🔴" in block:
+                            dom_market_trend = "SHORT"
+                        elif "NEUTRAL" in block or "🟣" in block:
+                            dom_market_trend = "NEUTRAL"
+                        logger.info(f"Parsed market trend from DOM vicinity lines: {dom_market_trend}")
+                        break
+                        
+                # Alternate scan for "Market Volatility" card/layout
+                for idx, line in enumerate(body_lines):
+                    line_upper = line.upper()
+                    if "MARKET VOL" in line_upper or "OVERALL VOL" in line_upper or "OVERALL MARKET VOL" in line_upper:
+                        block = " ".join(body_lines[idx:idx+2])
+                        nums = re.findall(r'\d+', block)
+                        if nums:
+                            try:
+                                dom_market_volatility = int(nums[0])
+                                logger.info(f"Parsed market volatility from DOM vicinity lines: {dom_market_volatility}")
+                                break
+                            except Exception:
+                                pass
+                                
+                # Parse asset row fallbacks if sniffer missed them
+                if not intercepted_data:
+                    logger.info("Sniffer found no API trend signals. Falling back to DOM parsing...")
                     # Common asset tickers to look for
                     tickers = ["BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "LINK", "ARB", "AVAX", "ADA", "HYPE"]
                     
@@ -179,8 +244,17 @@ class MangoDashboardScraper:
                                 }
                                 break
                     logger.info(f"DOM parsing finished. Found {len(dom_data)} tickers.")
-                except Exception as e:
-                    logger.error(f"Fallback DOM parsing failed: {e}")
+            except Exception as e:
+                logger.error(f"DOM parsing overall market / ticker fallback failed: {e}")
+            
+            # Determine final global values (sniffed has priority, DOM is fallback)
+            final_market_trend = intercepted_global.get("market_trend", "NEUTRAL")
+            if final_market_trend == "NEUTRAL" and dom_market_trend != "NEUTRAL":
+                final_market_trend = dom_market_trend
+                
+            final_market_volatility = intercepted_global.get("market_volatility", 50)
+            if final_market_volatility == 50 and dom_market_volatility != 50:
+                final_market_volatility = dom_market_volatility
             
             # Combine sniffed and DOM data (sniffed has priority)
             final_assets = {**dom_data, **intercepted_data}
@@ -190,9 +264,11 @@ class MangoDashboardScraper:
                 await browser.close()
                 return False
                 
-            # Create standardized payload
+            # Create standardized payload with global market variables
             result = {
                 "updated_at": datetime.utcnow().isoformat() + "Z",
+                "market_trend": final_market_trend,
+                "market_volatility": final_market_volatility,
                 "assets": final_assets
             }
             
@@ -200,7 +276,7 @@ class MangoDashboardScraper:
             CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(CACHE_FILE, "w") as f:
                 json.dump(result, f, indent=2)
-            logger.info(f"Cached {len(final_assets)} dashboard assets locally to {CACHE_FILE}")
+            logger.info(f"Cached {len(final_assets)} dashboard assets and global market variables locally to {CACHE_FILE}")
             
             # Save to Postgres database for production persistence
             try:
@@ -253,3 +329,32 @@ class MangoDashboardScraper:
                 logger.error(f"Failed to read local cache file: {e}")
                 
         return {}
+
+    def get_global_metrics(self) -> dict:
+        """Get the cached global market trend and volatility metrics"""
+        # PostgreSQL first
+        try:
+            if self.datastore:
+                db_data = self.datastore.get_setting("MANGO_DASHBOARD_CACHED_DATA")
+                if db_data:
+                    data = json.loads(db_data)
+                    return {
+                        "market_trend": data.get("market_trend", "NEUTRAL"),
+                        "market_volatility": data.get("market_volatility", 50)
+                    }
+        except Exception as e:
+            logger.error(f"Failed to retrieve global metrics from DB: {e}")
+            
+        # Local fallback
+        if CACHE_FILE.exists():
+            try:
+                with open(CACHE_FILE, "r") as f:
+                    data = json.load(f)
+                    return {
+                        "market_trend": data.get("market_trend", "NEUTRAL"),
+                        "market_volatility": data.get("market_volatility", 50)
+                    }
+            except Exception as e:
+                logger.error(f"Failed to read local cache file for global metrics: {e}")
+                
+        return {"market_trend": "NEUTRAL", "market_volatility": 50}

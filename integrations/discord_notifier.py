@@ -188,11 +188,16 @@ class DiscordNotifier:
         # Add Mango Research Premium Confluence if available
         confluence = signal.get('mango_confluence')
         if confluence:
+            vol_gauge = confluence.get('volatility')
+            vol_str = f"⚡ {vol_gauge}/100" if isinstance(vol_gauge, int) else f"⚡ {vol_gauge}"
+            
             lines += [
                 "━━━━━━━━━━━━━━━━━━",
                 "🥭 **Mango Research Premium Confluence:**",
-                f"   • Trend Badge: {confluence.get('trend_badge')}",
-                f"   • Volatility Gauge: ⚡ {confluence.get('volatility')}/100"
+                f"   • Asset Trend Badge: {confluence.get('trend_badge')}",
+                f"   • Asset Volatility: {vol_str}",
+                f"   • Overall Market Trend: {confluence.get('market_trend', '🟣 NEUTRAL')}",
+                f"   • Overall Market Vol: ⚡ {confluence.get('market_volatility', 50)}/100"
             ]
             flags = confluence.get('flags')
             if flags:

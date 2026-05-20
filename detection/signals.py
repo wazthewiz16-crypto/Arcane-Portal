@@ -314,16 +314,19 @@ class MangoSignalDetector:
 
     def _validate_mango_confluence(self, asset_name: str, signal: Dict) -> Optional[Dict]:
         """
-        Validate signal against the premium Mango Research Dashboard data (Opposite-trend blocking).
+        Validate signal against the premium Mango Research Dashboard data.
         
         Rules:
         - If confluence is disabled: passes through immediately.
-        - If strict mode is disabled (normal): if asset is not in dashboard data, passes through.
+        - Global Trend Filter:
+          - A LONG signal is BLOCKED if the global market_trend is SHORT.
+          - A SHORT signal is BLOCKED if the global market_trend is LONG.
         - If strict mode is enabled: if asset is not in dashboard data, blocks.
         - If asset is in dashboard data:
-          - A LONG signal is BLOCKED if the dashboard trend is SHORT.
-          - A SHORT signal is BLOCKED if the dashboard trend is LONG.
-          - If the dashboard trend is NEUTRAL or matches, it passes.
+          - A LONG signal is BLOCKED if the individual asset trend is SHORT (Opposite-trend blocking).
+          - A SHORT signal is BLOCKED if the individual asset trend is LONG (Opposite-trend blocking).
+          - Volatility Exhaustion Filter (Scalps): If individual volatility > 85 and signal is a Scalp, blocks.
+          - Volatility Compression Filter (Scalps): If individual volatility < 25 and signal is a Scalp, blocks.
         """
         try:
             from scraper.mango_dashboard import MangoDashboardScraper
@@ -332,7 +335,23 @@ class MangoSignalDetector:
             if not mango.is_enabled():
                 return signal
                 
-            # Get cached confluence details
+            # Get cached global market metrics
+            global_metrics = mango.get_global_metrics()
+            market_trend = global_metrics.get("market_trend", "NEUTRAL").upper()
+            market_volatility = global_metrics.get("market_volatility", 50)
+            
+            sig_direction = 'LONG' if 'LONG' in signal['signal_type'].upper() else 'SHORT'
+            is_scalp = 'SCALP' in signal['signal_type'].upper()
+            
+            # 1. Global Trend Opposite-Trend Blocking
+            if sig_direction == 'LONG' and market_trend == 'SHORT':
+                logger.info(f"🚫 Mango Global Confluence BLOCKED: {asset_name} LONG signal fights SHORT overall market trend ({market_trend})!")
+                return None
+            elif sig_direction == 'SHORT' and market_trend == 'LONG':
+                logger.info(f"🚫 Mango Global Confluence BLOCKED: {asset_name} SHORT signal fights LONG overall market trend ({market_trend})!")
+                return None
+                
+            # Get cached individual confluence details
             confluence = mango.get_cached_confluence(asset_name)
             
             # Check strict mode settings
@@ -345,13 +364,21 @@ class MangoSignalDetector:
                     logger.info(f"🚫 Mango Confluence: blocked {asset_name} {signal['signal_type']} - asset not found in dashboard cache (strict mode).")
                     return None
                 else:
-                    logger.info(f"ℹ️  Mango Confluence: {asset_name} not found in dashboard cache. Passing through (normal mode).")
+                    # Normal mode - unlisted asset passes individual check, but attach global metrics
+                    logger.info(f"ℹ️  Mango Confluence: {asset_name} not found in dashboard cache. Passing through (normal mode) after global checks.")
+                    signal['mango_confluence'] = {
+                        'trend_badge': '❔ UNLISTED',
+                        'volatility': 'N/A',
+                        'flags': [],
+                        'market_trend': '🟢 LONG' if market_trend == 'LONG' else ('🔴 SHORT' if market_trend == 'SHORT' else '🟣 NEUTRAL'),
+                        'market_volatility': market_volatility
+                    }
                     return signal
             
             trend_badge = confluence.get('trend', 'NEUTRAL').upper()
-            sig_direction = 'LONG' if 'LONG' in signal['signal_type'] else 'SHORT'
+            volatility = confluence.get('volatility', 50)
             
-            # Opposite-Trend Blocking
+            # 2. Individual Opposite-Trend Blocking
             if sig_direction == 'LONG' and trend_badge == 'SHORT':
                 logger.info(f"🚫 Mango Confluence BLOCKED: {asset_name} LONG signal fights SHORT dashboard trend badge!")
                 return None
@@ -359,13 +386,24 @@ class MangoSignalDetector:
                 logger.info(f"🚫 Mango Confluence BLOCKED: {asset_name} SHORT signal fights LONG dashboard trend badge!")
                 return None
                 
+            # 3. Individual Volatility Exhaustion and Compression Filters for Scalps
+            if is_scalp:
+                if volatility > 85:
+                    logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - extreme volatility exhaustion ({volatility} > 85).")
+                    return None
+                if volatility < 25:
+                    logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - dormant compression range ({volatility} < 25).")
+                    return None
+                    
             # Attach confluence metrics to the signal dictionary for Discord embeds
             signal['mango_confluence'] = {
                 'trend_badge': '🟢 LONG' if trend_badge == 'LONG' else ('🔴 SHORT' if trend_badge == 'SHORT' else '🟣 NEUTRAL'),
-                'volatility': confluence.get('volatility', 50),
-                'flags': confluence.get('flags', [])
+                'volatility': volatility,
+                'flags': confluence.get('flags', []),
+                'market_trend': '🟢 LONG' if market_trend == 'LONG' else ('🔴 SHORT' if market_trend == 'SHORT' else '🟣 NEUTRAL'),
+                'market_volatility': market_volatility
             }
-            logger.info(f"✅ Mango Confluence CONFIRMED: {asset_name} {signal['signal_type']} matches/aligns with {trend_badge} dashboard badge.")
+            logger.info(f"✅ Mango Confluence CONFIRMED: {asset_name} {signal['signal_type']} matches/aligns with {trend_badge} dashboard badge (Vol: {volatility}).")
             return signal
             
         except Exception as e:
