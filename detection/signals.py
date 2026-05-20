@@ -672,13 +672,17 @@ class MangoSignalDetector:
         elif not is_expanding and ribbon_dir == 'SHORT': color = 'ORANGE'
         else:                                            color = 'UNKNOWN'
         
-        # --- No direction context or unknown color → use simple expansion check ---
-        if signal_direction is None or color == 'UNKNOWN':
+        # --- No direction context → use simple expansion check ---
+        if signal_direction is None:
             return {
                 'expanding': is_expanding,
                 'confidence_bonus': 3.0 if is_expanding else 0.0,
                 'color': color
             }
+        
+        # --- Unknown color with direction context → block or unconfirmed ---
+        if color == 'UNKNOWN':
+            return {'expanding': False, 'confidence_bonus': 0, 'color': color}
         
         # --- Direction-aware color alignment check ---
         if color == 'GREEN' and signal_direction == 'LONG':
