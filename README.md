@@ -7,6 +7,11 @@
 ## Features
 
 - 🔮 **Automated Signal Detection**: Swing and scalp signals using precise two-timeframe alignment
+- 🥭 **Mango Research Premium Dashboard Integration**: Natively scrapes `app.mangoresearch.co` in the background (with 2-hour rate-limiting to optimize compute costs) using Playwright. Captures high-fidelity individual asset trend badges, asset volatility, global market trend, and overall market volatility:
+  - **Global Trend Opposite Blocking:** Blocks LONG signals if overall market trend is SHORT, and SHORT signals if overall market trend is LONG.
+  - **Scalp Volatility Filters:** Enforces an individual volatility gate for scalp signals, blocking trades on extreme exhaustion (`>85`) and dormant compression (`<25`) zones.
+  - **Custom MTF Button Preset Verification:** Automatically validates your signals against the custom **Mango Bullish** (4H, 12H, 1D Golden Cross + 2D, 4D LONG) and **Mango Bearish** (4H, 12H, 1D Death Cross + 2D, 4D SHORT) dashboard presets.
+  - **Gold Embed Alerts:** Standard signals display dedicated premium confluence metrics, while dashboard-native badge flips fire separate, visually stunning gold-coloured alerts with a multi-timeframe alignment grid.
 - 🧠 **Market Regime Detection**: Machine Learning (Random Forest) based system trained on historical 4H rolling data that classifies market conditions as TRENDING or RANGING and dynamically adjusts filters. The model automatically retrains itself every Saturday at 5:00 AM EST and pushes its accuracy metrics and feature importances straight to Discord!
 - 🤖 **Auto-Optimizer**: Runs continually to dynamically adjust confidence thresholds up or down based on recent win rates, frequency, and detected market regime, preventing dry spells and system death-spirals.
 - 📡 **Trade Radar**: Automatically pushes the top 5 "Prime" active trades (ideal pullbacks and near-entry trades) to Discord 4 times a day, allowing you to catch high-probability setups without watching charts.
@@ -85,7 +90,17 @@ A browser will open—log into TradingView, return to the terminal, and press EN
 
 The background scraper pulls the authentication state from the database and uses **Rolling Sessions** (it re-uploads its fresh cookies back to the database at the end of every hour) so your TradingView session theoretically never expires!
 
-### 4. Run the System
+### 4. Add Mango Research Session State
+
+Run the automated interactive login script for Mango Research to securely capture your dashboard session:
+```bash
+python interactive_login_mango.py
+```
+A browser will open—manually log into your premium Mango Research account. Once logged in and viewing the main dashboard, return to the terminal and press ENTER. The script will securely rip the active session storage and cookies, uploading them directly to your Railway PostgreSQL database as `MANGO_DASHBOARD_STATE` (and creating a local backup in `mango_state.json`).
+
+The background scraper retrieves this state from the database to securely run Playwright headless tasks on Railway without needing login credentials.
+
+### 5. Run the System
 
 ```bash
 # Terminal 1: Run the Dashboard
@@ -216,8 +231,15 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-03-30
+**Latest Update:** 2026-05-20
 
+- **Mango Research Premium Dashboard Integration (NEW)**: Natively scrapes `app.mangoresearch.co` in the background (with 2-hour rate-limiting to optimize compute costs) using Playwright with robust network sniffing and DOM-parsing fallbacks.
+- **Global Market Trend Opposite Blocking (NEW)**: Blocks standard TradingView signals from firing if they fight the overall global market trend (e.g., blocking LONG signals when the market is in a global SHORT regime).
+- **Scalp Volatility Filters (NEW)**: Enforces individual asset volatility gates for scalp signals, filtering out trades in extreme exhaustion zones (`>85`) or dormant compression zones (`<25`).
+- **Custom MTF Button Preset Verification (NEW)**: Validates signals against custom **Mango Bullish** (4H, 12H, 1D Golden Cross + 2D, 4D LONG) and **Mango Bearish** (4H, 12H, 1D Death Cross + 2D, 4D SHORT) dashboard presets. Standard TradingView Discord embeds now print these preset alignment statuses under a premium "Mango Premium Confluence" panel.
+- **Mango-Native Signal Detection (NEW)**: Created a separate, premium gold-colored alert class (`detection/mango_native_signals.py`) triggered by dashboard asset badge flips (e.g. `NEUTRAL ➔ LONG`). Signals generate when ≥60% of timeframes align with the new badge trend.
+- **Sleep Schedule Quiet Hours (NEW)**: Restricts all Mango dashboard scraping and native signal generation between 11:00 PM and 5:00 AM EST to align with sleep schedules, conserving resources and preventing late-night noise.
+- **Database Session State Capture (NEW)**: Added an interactive session capture helper (`interactive_login_mango.py`) with automatic Windows terminal console UTF-8 wrappers. The script securely uploads authenticated cookie/storage states directly to PostgreSQL (`MANGO_DASHBOARD_STATE`) with a local backup (`mango_state.json`) for seamless background running.
 - **Automated Trade Radar (NEW)**: Added a new `trade_radar.py` script that evaluates all open positions, identifies "Prime" setups (ideal pullbacks and near-entry opportunities), ranks them by confidence, and sends a top-5 digest to Discord. This runs automatically 4 times a day (8 AM, 12 PM, 4 PM, 8 PM EST) natively integrated into the `run_signals.py` loop.
 - **UI Cleanup for Screenshots**: Added aggressive CSS rules in the TradingView scraper to automatically hide pop-ups, promotional banners (like Easter sales), and floating toolbars before taking screenshots. This ensures Discord charts remain perfectly clean and unobstructed.
 - **LTF Screenshot Fallback (FIX)**: `4d → 1d` swing signals were missing the lower timeframe chart in Discord because the `1d` timeframe is only scraped at specific times. The system now falls back to the most recent `1d` screenshot stored in the database when the LTF chart isn't part of the current scrape batch — ensuring both charts always appear in Discord alerts.
