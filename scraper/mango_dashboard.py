@@ -264,6 +264,19 @@ class MangoDashboardScraper:
                 await browser.close()
                 return False
                 
+            # --- Per-asset timeframe breakdown scraping ---
+            # Navigate each non-NEUTRAL asset's detail page to capture TF alignment
+            for sym, asset_info in list(final_assets.items()):
+                if asset_info.get('trend', 'NEUTRAL') == 'NEUTRAL':
+                    continue  # Only scrape detail for directional assets
+                try:
+                    tf_data = await self._scrape_asset_timeframes(page, sym)
+                    if tf_data:
+                        final_assets[sym]['timeframes'] = tf_data
+                        logger.info(f"Captured {len(tf_data)} timeframe(s) for {sym}: {tf_data}")
+                except Exception as e:
+                    logger.warning(f"Could not scrape timeframe detail for {sym}: {e}")
+
             # Create standardized payload with global market variables
             result = {
                 "updated_at": datetime.utcnow().isoformat() + "Z",
@@ -358,3 +371,105 @@ class MangoDashboardScraper:
                 logger.error(f"Failed to read local cache file for global metrics: {e}")
                 
         return {"market_trend": "NEUTRAL", "market_volatility": 50}
+
+    async def _scrape_asset_timeframes(self, page, symbol: str) -> dict:
+        """
+        Navigate to the asset detail page and extract the per-timeframe
+        trend breakdown (e.g. 15m, 1H, 4H, 1D).
+
+        Returns a dict like {"15m": "LONG", "1H": "NEUTRAL", "4H": "LONG", "1D": "LONG"}
+        or an empty dict if parsing fails.
+        """
+        timeframes = {}
+        detail_url = f"https://app.mangoresearch.co/dashboard/{symbol.lower()}"
+
+        # Intercept JSON on the detail page
+        detail_intercepted: dict = {}
+
+        async def handle_tf_response(response):
+            try:
+                url = response.url.lower()
+                if "mangoresearch" in url and "json" in response.request.resource_type:
+                    try:
+                        payload = await response.json()
+
+                        def scan_tf(obj):
+                            if isinstance(obj, dict):
+                                # Look for objects that have a 'timeframe' key alongside 'trend'
+                                tf_key  = obj.get('timeframe') or obj.get('tf') or obj.get('interval')
+                                trend   = obj.get('trend') or obj.get('badge') or obj.get('direction', '')
+                                if tf_key and trend:
+                                    t_str = str(trend).upper()
+                                    mapped = ('LONG' if 'LONG' in t_str or 'BULL' in t_str
+                                              else 'SHORT' if 'SHORT' in t_str or 'BEAR' in t_str
+                                              else 'NEUTRAL')
+                                    detail_intercepted[str(tf_key).upper()] = mapped
+                                for v in obj.values():
+                                    scan_tf(v)
+                            elif isinstance(obj, list):
+                                for item in obj:
+                                    scan_tf(item)
+
+                        scan_tf(payload)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        page.on("response", handle_tf_response)
+        try:
+            await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
+            await asyncio.sleep(5)  # Wait for SPA render
+
+            if detail_intercepted:
+                timeframes = detail_intercepted
+            else:
+                # DOM fallback: look for rows containing a timeframe label + trend word
+                body_text = await page.inner_text("body")
+                tf_labels = ["15M", "1H", "2H", "4H", "8H", "12H", "1D", "3D", "1W"]
+                lines = body_text.split('\n')
+                for i, line in enumerate(lines):
+                    line_up = line.upper().strip()
+                    for label in tf_labels:
+                        if label in line_up and len(line_up) < 20:  # Short label lines only
+                            block = " ".join(lines[i:i+3]).upper()
+                            if 'LONG' in block or 'BULLISH' in block:
+                                timeframes[label] = 'LONG'
+                            elif 'SHORT' in block or 'BEARISH' in block:
+                                timeframes[label] = 'SHORT'
+                            elif 'NEUTRAL' in block:
+                                timeframes[label] = 'NEUTRAL'
+                            break
+        except Exception as e:
+            logger.warning(f"Detail page navigation failed for {symbol}: {e}")
+        finally:
+            # Unsubscribe the per-asset handler to avoid stale callbacks
+            page.remove_listener("response", handle_tf_response)
+            # Navigate back to main dashboard to keep session warm
+            try:
+                await page.goto("https://app.mangoresearch.co/dashboard",
+                                wait_until="domcontentloaded", timeout=20000)
+                await asyncio.sleep(2)
+            except Exception:
+                pass
+
+        return timeframes
+
+    def get_all_cached_assets(self) -> dict:
+        """Return the full asset dict from cache (for the native signal detector)."""
+        from pathlib import Path
+        CACHE = Path("data/mango_dashboard.json")
+        try:
+            if self.datastore:
+                raw = self.datastore.get_setting("MANGO_DASHBOARD_CACHED_DATA")
+                if raw:
+                    return json.loads(raw).get("assets", {})
+        except Exception:
+            pass
+        if CACHE.exists():
+            try:
+                with open(CACHE) as f:
+                    return json.load(f).get("assets", {})
+            except Exception:
+                pass
+        return {}

@@ -81,6 +81,35 @@ async def run_scraper_and_detect():
     except Exception as e:
         print(f"[MANGO DASHBOARD] Initialization or scraping error: {e}")
     # ---------------------------------------------------------------------------------
+
+    # --- Mango-Native Signal Detection (runs after every dashboard scrape/cache load) ---
+    try:
+        from scraper.mango_dashboard import MangoDashboardScraper as _MS
+        _ms = _MS()
+        if _ms.is_enabled():
+            print("\n[MANGO NATIVE] Running dashboard-native signal detector...")
+            from detection.mango_native_signals import MangoNativeSignalDetector
+            native_detector = MangoNativeSignalDetector(datastore)
+            native_signals  = native_detector.detect()
+
+            if native_signals:
+                print(f"[MANGO NATIVE] {len(native_signals)} native signal(s) detected!")
+                for sig in native_signals:
+                    try:
+                        notifier.send_signal_alert(sig)
+                        print(f"  🥭 Sent Mango-native signal: {sig['asset_name']} {sig['signal_type']}")
+                    except Exception as e:
+                        print(f"  ⚠️  Failed to send Mango-native Discord alert: {e}")
+            else:
+                print("[MANGO NATIVE] No new badge flips — no native signals this cycle.")
+        else:
+            print("[MANGO NATIVE] Skipped (MANGO_CONFLUENCE_ENABLED not True).")
+    except Exception as e:
+        print(f"[MANGO NATIVE] Error during native signal detection: {e}")
+        import traceback
+        traceback.print_exc()
+    # ---------------------------------------------------------------------------------
+
     
     # Step 1: Run scraper
     # Step 1: Initialize

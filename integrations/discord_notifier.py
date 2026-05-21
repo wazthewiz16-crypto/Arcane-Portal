@@ -1,4 +1,5 @@
 """Discord webhook integration for trading signal alerts"""
+import os
 import requests
 import logging
 from datetime import datetime
@@ -6,6 +7,10 @@ from typing import Dict, Optional
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+# Mango-native signal TP/SL display labels (kept in sync with mango_native_signals.py defaults)
+DEFAULT_TP_PCT_DISPLAY = os.getenv("MANGO_NATIVE_TP_PCT", "3.0")
+DEFAULT_SL_PCT_DISPLAY = os.getenv("MANGO_NATIVE_SL_PCT", "1.5")
 
 
 class DiscordNotifier:
@@ -38,8 +43,11 @@ class DiscordNotifier:
             return False
         
         try:
-            # Format the alert message
-            message = self._format_signal_alert(signal)
+            # Branch: Mango-native signals have their own formatter
+            if signal.get('is_mango_native'):
+                message = self._format_mango_native_alert(signal)
+            else:
+                message = self._format_signal_alert(signal)
             
             # Create Discord embed for the signal text + LTF chart
             embed = self._create_embed(signal, message)
@@ -204,6 +212,77 @@ class DiscordNotifier:
                 lines.append(f"   • Technical Flags: 📈 {', '.join(flags)}")
                 
         return "\n".join(lines)
+
+    def _format_mango_native_alert(self, signal: Dict) -> str:
+        """
+        Format a Mango Dashboard-native signal alert.
+        Distinct layout with badge flip indicator and timeframe alignment grid.
+        """
+        direction    = "LONG" if "LONG" in signal["signal_type"] else "SHORT"
+        emoji_dir    = "🚀" if direction == "LONG" else "📉"
+        entry_price  = signal["entry_price"]
+        take_profit  = signal["take_profit"]
+        stop_loss    = signal["stop_loss"]
+        rr_ratio     = signal["rr_ratio"]
+        confidence   = signal["confidence"]
+        prev_trend   = signal.get("badge_flip_from", "UNKNOWN")
+        volatility   = signal.get("volatility", "N/A")
+        flags        = signal.get("flags", [])
+        timeframes   = signal.get("timeframes", {})
+        mkt_trend    = signal.get("market_trend", "🟣 NEUTRAL")
+        mkt_vol      = signal.get("market_volatility", 50)
+        entry_time   = self._format_datetime(signal["entry_time"])
+
+        # Decimal precision
+        if entry_price < 1:
+            dec = 6
+        elif entry_price < 100:
+            dec = 3
+        else:
+            dec = 2
+
+        # Badge flip display
+        trend_icons = {"LONG": "🟢 LONG", "SHORT": "🔴 SHORT", "NEUTRAL": "🟣 NEUTRAL", "UNKNOWN": "❔"}
+        prev_icon    = trend_icons.get(prev_trend, "❔")
+        current_icon = trend_icons.get(direction, direction)
+
+        # Timeframe grid
+        tf_order = ["15M", "1H", "2H", "4H", "8H", "12H", "1D", "3D", "1W"]
+        tf_lines = []
+        if timeframes:
+            agree = sum(1 for v in timeframes.values() if v == direction)
+            total = len(timeframes)
+            tf_lines.append(f"📊 Timeframe Alignment ({agree}/{total} agree):")
+            # Sort by canonical order
+            sorted_tfs = sorted(timeframes.items(),
+                                key=lambda x: tf_order.index(x[0]) if x[0] in tf_order else 99)
+            for tf_label, tf_trend in sorted_tfs:
+                icon = {"LONG": "🟢", "SHORT": "🔴", "NEUTRAL": "🟣"}.get(tf_trend, "❔")
+                agree_mark = "✓" if tf_trend == direction else " "
+                tf_lines.append(f"   {agree_mark} {tf_label:<4} → {icon} {tf_trend}")
+        else:
+            tf_lines.append("📊 Timeframe Alignment: (badge flip only — detail page pending)")
+
+        lines = [
+            f"{emoji_dir} **MANGO SIGNAL — {direction} — {signal['asset_name']}**",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            f"📡 Badge Flip: {prev_icon} → {current_icon}",
+        ] + tf_lines + [
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            f"💰 Entry: ${entry_price:.{dec}f}",
+            f"🎯 Take Profit: ${take_profit:.{dec}f}  (+{signal.get('tp_pct', DEFAULT_TP_PCT_DISPLAY)}%)",
+            f"🛡️ Stop Loss: ${stop_loss:.{dec}f}  (-{signal.get('sl_pct', DEFAULT_SL_PCT_DISPLAY)}%)",
+            f"📈 RR: {rr_ratio:.1f}:1",
+            f"🎲 Alignment Confidence: {confidence:.0f}%",
+            f"⚡ Asset Volatility: {volatility}/100",
+            f"🌍 Market Regime: {mkt_trend} (Vol: {mkt_vol}/100)",
+            f"⏰ Signal Time: {entry_time}",
+        ]
+
+        if flags:
+            lines.append(f"📌 Technical Flags: {', '.join(flags)}")
+
+        return "\n".join(lines)
     
     def _create_embed(self, signal: Dict, message: str) -> Dict:
         """
@@ -216,14 +295,18 @@ class DiscordNotifier:
         Returns:
             Discord embed dictionary
         """
-        # Color coding
-        if 'LONG' in signal['signal_type']:
+        # Color coding — Mango-native signals use gold; others use green/red
+        if signal.get('is_mango_native'):
+            color = 0xFFBF00  # Gold / Amber
+        elif 'LONG' in signal['signal_type']:
             color = 0x00FF00  # Green for longs
         else:
             color = 0xFF0000  # Red for shorts
         
         # Determine title
-        if 'SWING' in signal['signal_type']:
+        if signal.get('is_mango_native'):
+            title = "🥭 Mango Dashboard Signal"
+        elif 'SWING' in signal['signal_type']:
             title = "🎯 Swing Trade Signal"
         else:
             title = "⚡ Scalp Trade Signal"
