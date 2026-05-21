@@ -87,7 +87,16 @@ class MangoDashboardScraper:
             async def handle_response(response):
                 try:
                     url = response.url.lower()
-                    if "mangoresearch" in url and "json" in response.request.resource_type:
+                    # Playwright resource types for API calls are standard 'fetch' or 'xhr'
+                    is_api_request = (
+                        "mangoresearch" in url and 
+                        (
+                            response.request.resource_type in ["fetch", "xhr"] or 
+                            "application/json" in response.headers.get("content-type", "").lower() or
+                            "json" in url
+                        )
+                    )
+                    if is_api_request:
                         try:
                             # Load JSON payload
                             payload = await response.json()
@@ -135,14 +144,14 @@ class MangoDashboardScraper:
                             scan_for_trends(payload)
                             if found_valid:
                                 logger.info(f"Successfully sniffed API response with coin trends from: {response.url}")
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"JSON parsing failed for sniffed URL {url}: {e}")
                 except Exception as e:
-                    logger.debug(f"Error reading response: {e}")
+                    logger.debug(f"Error in sniffing handler: {e}")
                     
             page.on("response", handle_response)
             
-            # Open the dashboard
+            # Open the dashboard (defaults to CRYPTO tab)
             url = "https://app.mangoresearch.co/dashboard"
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -152,17 +161,7 @@ class MangoDashboardScraper:
                 await browser.close()
                 return False
                 
-            # Take a premium visual backup screenshot
-            screenshots_dir = Path("data/screenshots")
-            screenshots_dir.mkdir(parents=True, exist_ok=True)
-            screenshot_path = screenshots_dir / "mango_dashboard.png"
-            try:
-                await page.screenshot(path=str(screenshot_path))
-                logger.info(f"Visual backup screenshot saved to {screenshot_path}")
-            except Exception as e:
-                logger.warning(f"Could not take dashboard screenshot: {e}")
-                
-            # --- Fallback & Global DOM Parser ---
+            # --- Fallback & Global DOM Parser (Part 1: Crypto & Global Metrics) ---
             dom_data = {}
             dom_market_trend = "NEUTRAL"
             dom_market_volatility = 50
@@ -170,83 +169,152 @@ class MangoDashboardScraper:
             try:
                 # Capture inner text of the entire document to extract standard coin names, trend words, and global metrics
                 body_text = await page.inner_text("body")
-                
-                # Regex for Market Volatility (e.g. Market Volatility: 65% or Market Volatility 65)
-                vol_match = re.search(r'(?:market|overall|global|regime)\s+volatility\s*(?::|)?\s*(\d+)', body_text, re.IGNORECASE)
-                if vol_match:
-                    try:
-                        dom_market_volatility = int(vol_match.group(1))
-                        logger.info(f"Parsed market volatility from DOM regex: {dom_market_volatility}")
-                    except Exception:
-                        pass
-                        
-                # Regex for Market Trend (e.g. Market Trend: Bullish, Market Trend Long)
-                trend_match = re.search(r'(?:market|overall|global|regime)\s+trend\s*(?::|)?\s*(bullish|bearish|neutral|long|short)', body_text, re.IGNORECASE)
-                if trend_match:
-                    t_str = trend_match.group(1).upper()
-                    dom_market_trend = 'LONG' if 'LONG' in t_str or 'BULL' in t_str else ('SHORT' if 'SHORT' in t_str or 'BEAR' in t_str else 'NEUTRAL')
-                    logger.info(f"Parsed market trend from DOM regex: {dom_market_trend}")
-                
                 body_lines = body_text.split('\n')
-                # Alternate scan for "Market Trend" card/layout
+                
+                # Check for "MARKET" exact label in DOM vicinity for global metrics (only visible on CRYPTO tab)
                 for idx, line in enumerate(body_lines):
-                    line_upper = line.upper()
-                    if "MARKET TREND" in line_upper or "OVERALL TREND" in line_upper or "OVERALL MARKET TREND" in line_upper:
-                        block = " ".join(body_lines[idx:idx+3]).upper()
-                        if "BULL" in block or "LONG" in block or "🟢" in block:
-                            dom_market_trend = "LONG"
-                        elif "BEAR" in block or "SHORT" in block or "🔴" in block:
-                            dom_market_trend = "SHORT"
-                        elif "NEUTRAL" in block or "🟣" in block:
-                            dom_market_trend = "NEUTRAL"
-                        logger.info(f"Parsed market trend from DOM vicinity lines: {dom_market_trend}")
-                        break
+                    line_clean = line.strip().upper()
+                    if line_clean == "MARKET":
+                        vicinity_lines = [l.strip().upper() for l in body_lines[idx+1:idx+6] if l.strip()]
+                        vicinity_text = " ".join(vicinity_lines)
                         
-                # Alternate scan for "Market Volatility" card/layout
-                for idx, line in enumerate(body_lines):
-                    line_upper = line.upper()
-                    if "MARKET VOL" in line_upper or "OVERALL VOL" in line_upper or "OVERALL MARKET VOL" in line_upper:
-                        block = " ".join(body_lines[idx:idx+2])
-                        nums = re.findall(r'\d+', block)
+                        if "LONG" in vicinity_text or "BULL" in vicinity_text or "🟢" in vicinity_text:
+                            dom_market_trend = "LONG"
+                        elif "SHORT" in vicinity_text or "BEAR" in vicinity_text or "🔴" in vicinity_text:
+                            dom_market_trend = "SHORT"
+                        elif "NEUTRAL" in vicinity_text or "🟣" in vicinity_text:
+                            dom_market_trend = "NEUTRAL"
+                            
+                        nums = re.findall(r'\d+', vicinity_text)
                         if nums:
                             try:
                                 dom_market_volatility = int(nums[0])
-                                logger.info(f"Parsed market volatility from DOM vicinity lines: {dom_market_volatility}")
-                                break
                             except Exception:
                                 pass
+                        
+                        logger.info(f"Robust DOM 'MARKET' scan parsed: Trend={dom_market_trend}, Volatility={dom_market_volatility}")
+                        break
+                        
+                # Parse CRYPTO asset row fallbacks if sniffer missed them
+                crypto_tickers = ["BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "LINK", "ARB", "AVAX", "ADA", "HYPE"]
+                for ticker in crypto_tickers:
+                    for i, line in enumerate(body_lines):
+                        line_clean = line.upper().strip()
+                        if line_clean == ticker or line_clean == f"{ticker}USDT" or line_clean == f"{ticker}-USDT":
+                            # Gather lines to capture the row
+                            row_lines = [l.strip() for l in body_lines[i:i+10]]
+                            row_text = " ".join(row_lines).upper()
+                            
+                            trend = 'NEUTRAL'
+                            if 'LONG' in row_text or '🟢' in row_text:
+                                trend = 'LONG'
+                            elif 'SHORT' in row_text or '🔴' in row_text:
+                                trend = 'SHORT'
                                 
-                # Parse asset row fallbacks if sniffer missed them
-                if not intercepted_data:
-                    logger.info("Sniffer found no API trend signals. Falling back to DOM parsing...")
-                    # Common asset tickers to look for
-                    tickers = ["BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "LINK", "ARB", "AVAX", "ADA", "HYPE"]
-                    
-                    # Search text for lines matching each coin
-                    lines = body_text.split('\n')
-                    for ticker in tickers:
-                        # Find lines containing the ticker
-                        for i, line in enumerate(lines):
-                            if ticker in line.upper():
-                                # Look at this line and subsequent 3 lines for trend keywords
-                                context_block = " ".join(lines[max(0, i-1):min(len(lines), i+4)]).upper()
-                                
-                                trend = 'NEUTRAL'
-                                if 'LONG' in context_block or 'BULLISH' in context_block or '🟢' in context_block:
-                                    trend = 'LONG'
-                                elif 'SHORT' in context_block or 'BEARISH' in context_block or '🔴' in context_block:
-                                    trend = 'SHORT'
-                                    
-                                dom_data[ticker] = {
-                                    'trend': trend,
-                                    'volatility': 50,  # Default fallback volatility
-                                    'flags': []
-                                }
-                                break
-                    logger.info(f"DOM parsing finished. Found {len(dom_data)} tickers.")
+                            volatility = 50
+                            for r_line in row_lines[4:9]:
+                                r_line_clean = r_line.replace('%', '').strip()
+                                if r_line_clean.isdigit():
+                                    val = int(r_line_clean)
+                                    if 1 <= val <= 100:
+                                        volatility = val
+                                        break
+                                        
+                            dom_data[ticker] = {
+                                'trend': trend,
+                                'volatility': volatility,
+                                'flags': []
+                            }
+                            break
             except Exception as e:
-                logger.error(f"DOM parsing overall market / ticker fallback failed: {e}")
-            
+                logger.error(f"DOM parsing crypto / global metrics failed: {e}")
+                
+            # --- Switch to TRADFI Tab to scrape TradFi assets ---
+            try:
+                logger.info("Attempting to click the TRADFI tab on the dashboard...")
+                clicked_tradfi = False
+                for selector in [
+                    "button:has-text('TRADFI')",
+                    "text=TRADFI",
+                    "[role='button']:has-text('TRADFI')",
+                    "div:has-text('TRADFI')"
+                ]:
+                    try:
+                        loc = page.locator(selector).first
+                        if await loc.is_visible():
+                            await loc.click()
+                            clicked_tradfi = True
+                            logger.info(f"Successfully clicked TRADFI tab using selector: {selector}")
+                            break
+                    except Exception as e:
+                        logger.debug(f"Selector {selector} failed to click TRADFI: {e}")
+                        
+                if not clicked_tradfi:
+                    buttons = page.locator("button")
+                    count = await buttons.count()
+                    for idx in range(count):
+                        btn = buttons.nth(idx)
+                        text = await btn.inner_text()
+                        if "TRADFI" in text.upper():
+                            await btn.click()
+                            clicked_tradfi = True
+                            logger.info(f"Clicked TRADFI tab by iterating buttons at index {idx}")
+                            break
+                            
+                if clicked_tradfi:
+                    # Wait for network requests and DOM updates on TRADFI tab
+                    await asyncio.sleep(5)
+                    
+                    # Take a premium visual backup screenshot of the TRADFI page
+                    screenshots_dir = Path("data/screenshots")
+                    screenshots_dir.mkdir(parents=True, exist_ok=True)
+                    screenshot_path = screenshots_dir / "mango_dashboard.png"
+                    try:
+                        await page.screenshot(path=str(screenshot_path))
+                        logger.info(f"Visual backup screenshot saved to {screenshot_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not take dashboard screenshot: {e}")
+                        
+                    # --- Fallback DOM Parser (Part 2: TradFi) ---
+                    try:
+                        tradfi_text = await page.inner_text("body")
+                        tradfi_lines = tradfi_text.split('\n')
+                        
+                        tradfi_tickers = ["SPY", "QQQ", "GLD", "SLV", "USO"]
+                        for ticker in tradfi_tickers:
+                            for i, line in enumerate(tradfi_lines):
+                                if ticker == line.upper().strip():
+                                    row_lines = [l.strip() for l in tradfi_lines[i:i+10]]
+                                    row_text = " ".join(row_lines).upper()
+                                    
+                                    trend = 'NEUTRAL'
+                                    if 'LONG' in row_text or '🟢' in row_text:
+                                        trend = 'LONG'
+                                    elif 'SHORT' in row_text or '🔴' in row_text:
+                                        trend = 'SHORT'
+                                        
+                                    volatility = 50
+                                    for r_line in row_lines[4:9]:
+                                        r_line_clean = r_line.replace('%', '').strip()
+                                        if r_line_clean.isdigit():
+                                            val = int(r_line_clean)
+                                            if 1 <= val <= 100:
+                                                volatility = val
+                                                break
+                                                
+                                    dom_data[ticker] = {
+                                        'trend': trend,
+                                        'volatility': volatility,
+                                        'flags': []
+                                    }
+                                    break
+                    except Exception as e:
+                        logger.error(f"DOM parsing tradfi failed: {e}")
+                else:
+                    logger.warning("Could not find or click the TRADFI tab button on the dashboard.")
+            except Exception as e:
+                logger.error(f"Error during TRADFI switching / scraping: {e}")
+                
             # Determine final global values (sniffed has priority, DOM is fallback)
             final_market_trend = intercepted_global.get("market_trend", "NEUTRAL")
             if final_market_trend == "NEUTRAL" and dom_market_trend != "NEUTRAL":
@@ -326,7 +394,18 @@ class MangoDashboardScraper:
 
     def get_cached_confluence(self, asset_name: str) -> dict:
         """Get the cached confluence data for a specific asset"""
-        asset_name = asset_name.upper()
+        asset_name = asset_name.upper().replace('USDT', '').replace('.P', '').split(':')[0].strip()
+        
+        # Apply symbol mapping for TradFi index / commodity assets to ETF tickers
+        SYMBOL_MAP = {
+            "SPX": "SPY",
+            "NDX": "QQQ",
+            "GOLD": "GLD",
+            "SILVER": "SLV",
+            "OIL": "USO"
+        }
+        if asset_name in SYMBOL_MAP:
+            asset_name = SYMBOL_MAP[asset_name]
         
         # Attempt to load from PostgreSQL first
         try:
@@ -402,7 +481,16 @@ class MangoDashboardScraper:
         async def handle_tf_response(response):
             try:
                 url = response.url.lower()
-                if "mangoresearch" in url and "json" in response.request.resource_type:
+                content_type = response.headers.get("content-type", "").lower() if response.headers else ""
+                is_api_request = (
+                    "mangoresearch" in url and 
+                    (
+                        response.request.resource_type in ["fetch", "xhr"] or 
+                        "application/json" in content_type or
+                        "json" in url
+                    )
+                )
+                if is_api_request:
                     try:
                         payload = await response.json()
 
