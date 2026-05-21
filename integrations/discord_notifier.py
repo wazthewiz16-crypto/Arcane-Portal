@@ -210,6 +210,16 @@ class DiscordNotifier:
             flags = confluence.get('flags')
             if flags:
                 lines.append(f"   • Technical Flags: 📈 {', '.join(flags)}")
+            # MTF preset filter status
+            mtf_b = confluence.get('mtf_bullish', False)
+            mtf_be = confluence.get('mtf_bearish', False)
+            sig_dir = 'LONG' if 'LONG' in signal.get('signal_type', '') else 'SHORT'
+            if mtf_b and sig_dir == 'LONG':
+                lines.append("   • MTF Preset: ✅ Mango Bullish Confirmed")
+            elif mtf_be and sig_dir == 'SHORT':
+                lines.append("   • MTF Preset: ✅ Mango Bearish Confirmed")
+            elif mtf_b or mtf_be:
+                lines.append(f"   • MTF Preset: ⚠️ {'Mango Bullish' if mtf_b else 'Mango Bearish'} (opposite direction)")
                 
         return "\n".join(lines)
 
@@ -232,6 +242,8 @@ class DiscordNotifier:
         mkt_trend    = signal.get("market_trend", "🟣 NEUTRAL")
         mkt_vol      = signal.get("market_volatility", 50)
         entry_time   = self._format_datetime(signal["entry_time"])
+        mtf_bullish  = signal.get("mtf_bullish", False)
+        mtf_bearish  = signal.get("mtf_bearish", False)
 
         # Decimal precision
         if entry_price < 1:
@@ -247,7 +259,7 @@ class DiscordNotifier:
         current_icon = trend_icons.get(direction, direction)
 
         # Timeframe grid
-        tf_order = ["15M", "1H", "2H", "4H", "8H", "12H", "1D", "3D", "1W"]
+        tf_order = ["15M", "1H", "2H", "4H", "8H", "12H", "1D", "2D", "3D", "4D", "1W"]
         tf_lines = []
         if timeframes:
             agree = sum(1 for v in timeframes.values() if v == direction)
@@ -263,10 +275,22 @@ class DiscordNotifier:
         else:
             tf_lines.append("📊 Timeframe Alignment: (badge flip only — detail page pending)")
 
+        # MTF preset status line
+        if mtf_bullish and direction == "LONG":
+            mtf_line = "🥭 MTF Preset: ✅ **Mango Bullish Confirmed** (Golden Cross + Long HTF)"
+        elif mtf_bearish and direction == "SHORT":
+            mtf_line = "🥭 MTF Preset: ✅ **Mango Bearish Confirmed** (Death Cross + Short HTF)"
+        elif mtf_bullish or mtf_bearish:
+            preset_name = "Mango Bullish" if mtf_bullish else "Mango Bearish"
+            mtf_line = f"🥭 MTF Preset: ⚠️ {preset_name} active (opposite direction)"
+        else:
+            mtf_line = "🥭 MTF Preset: ➖ No preset match yet"
+
         lines = [
             f"{emoji_dir} **MANGO SIGNAL — {direction} — {signal['asset_name']}**",
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             f"📡 Badge Flip: {prev_icon} → {current_icon}",
+            mtf_line,
         ] + tf_lines + [
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             f"💰 Entry: ${entry_price:.{dec}f}",

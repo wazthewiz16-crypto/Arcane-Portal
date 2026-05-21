@@ -371,7 +371,9 @@ class MangoSignalDetector:
                         'volatility': 'N/A',
                         'flags': [],
                         'market_trend': '🟢 LONG' if market_trend == 'LONG' else ('🔴 SHORT' if market_trend == 'SHORT' else '🟣 NEUTRAL'),
-                        'market_volatility': market_volatility
+                        'market_volatility': market_volatility,
+                        'mtf_bullish': False,
+                        'mtf_bearish': False
                     }
                     return signal
             
@@ -401,7 +403,9 @@ class MangoSignalDetector:
                 'volatility': volatility,
                 'flags': confluence.get('flags', []),
                 'market_trend': '🟢 LONG' if market_trend == 'LONG' else ('🔴 SHORT' if market_trend == 'SHORT' else '🟣 NEUTRAL'),
-                'market_volatility': market_volatility
+                'market_volatility': market_volatility,
+                'mtf_bullish': confluence.get('mtf_bullish', False),
+                'mtf_bearish': confluence.get('mtf_bearish', False)
             }
             logger.info(f"✅ Mango Confluence CONFIRMED: {asset_name} {signal['signal_type']} matches/aligns with {trend_badge} dashboard badge (Vol: {volatility}).")
             return signal

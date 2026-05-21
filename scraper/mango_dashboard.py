@@ -270,10 +270,20 @@ class MangoDashboardScraper:
                 if asset_info.get('trend', 'NEUTRAL') == 'NEUTRAL':
                     continue  # Only scrape detail for directional assets
                 try:
-                    tf_data = await self._scrape_asset_timeframes(page, sym)
-                    if tf_data:
-                        final_assets[sym]['timeframes'] = tf_data
-                        logger.info(f"Captured {len(tf_data)} timeframe(s) for {sym}: {tf_data}")
+                    tf_result = await self._scrape_asset_timeframes(page, sym)
+                    if tf_result:
+                        trends = tf_result.get('trends', {})
+                        flags  = tf_result.get('flags', {})
+                        final_assets[sym]['timeframes']      = trends
+                        final_assets[sym]['timeframe_flags'] = flags
+                        mtf = self._evaluate_mtf_filters(trends, flags)
+                        final_assets[sym]['mtf_bullish'] = mtf['mtf_bullish']
+                        final_assets[sym]['mtf_bearish'] = mtf['mtf_bearish']
+                        logger.info(
+                            f"Captured {len(trends)} TF(s) for {sym} | "
+                            f"Mango Bullish: {mtf['mtf_bullish']} | "
+                            f"Mango Bearish: {mtf['mtf_bearish']}"
+                        )
                 except Exception as e:
                     logger.warning(f"Could not scrape timeframe detail for {sym}: {e}")
 
@@ -374,17 +384,20 @@ class MangoDashboardScraper:
 
     async def _scrape_asset_timeframes(self, page, symbol: str) -> dict:
         """
-        Navigate to the asset detail page and extract the per-timeframe
-        trend breakdown (e.g. 15m, 1H, 4H, 1D).
+        Navigate to the asset detail page and extract per-timeframe trend AND flags.
 
-        Returns a dict like {"15m": "LONG", "1H": "NEUTRAL", "4H": "LONG", "1D": "LONG"}
-        or an empty dict if parsing fails.
+        Returns:
+            {
+              'trends': {'4H': 'LONG', '1D': 'NEUTRAL', ...},
+              'flags':  {'4H': ['Golden Cross'], '12H': [], '1D': ['Golden Cross'], ...}
+            }
         """
-        timeframes = {}
+        trends:  dict = {}
+        flags:   dict = {}
         detail_url = f"https://app.mangoresearch.co/dashboard/{symbol.lower()}"
 
         # Intercept JSON on the detail page
-        detail_intercepted: dict = {}
+        detail_intercepted: dict = {}  # tf_key -> {trend, flags}
 
         async def handle_tf_response(response):
             try:
@@ -395,15 +408,26 @@ class MangoDashboardScraper:
 
                         def scan_tf(obj):
                             if isinstance(obj, dict):
-                                # Look for objects that have a 'timeframe' key alongside 'trend'
-                                tf_key  = obj.get('timeframe') or obj.get('tf') or obj.get('interval')
-                                trend   = obj.get('trend') or obj.get('badge') or obj.get('direction', '')
+                                tf_key = (obj.get('timeframe') or obj.get('tf')
+                                          or obj.get('interval'))
+                                trend  = (obj.get('trend') or obj.get('badge')
+                                          or obj.get('direction', ''))
                                 if tf_key and trend:
-                                    t_str = str(trend).upper()
-                                    mapped = ('LONG' if 'LONG' in t_str or 'BULL' in t_str
-                                              else 'SHORT' if 'SHORT' in t_str or 'BEAR' in t_str
+                                    t_str  = str(trend).upper()
+                                    mapped = ('LONG'    if 'LONG'  in t_str or 'BULL' in t_str
+                                              else 'SHORT'   if 'SHORT' in t_str or 'BEAR' in t_str
                                               else 'NEUTRAL')
-                                    detail_intercepted[str(tf_key).upper()] = mapped
+                                    # Capture indicator flags for this timeframe
+                                    raw_flags = (obj.get('flags') or obj.get('indicators')
+                                                 or obj.get('signals') or [])
+                                    if isinstance(raw_flags, str):
+                                        raw_flags = [raw_flags]
+                                    clean_flags = [str(f).strip() for f in raw_flags if f]
+                                    tf_label = str(tf_key).upper()
+                                    detail_intercepted[tf_label] = {
+                                        'trend': mapped,
+                                        'flags': clean_flags
+                                    }
                                 for v in obj.values():
                                     scan_tf(v)
                             elif isinstance(obj, list):
@@ -422,30 +446,37 @@ class MangoDashboardScraper:
             await asyncio.sleep(5)  # Wait for SPA render
 
             if detail_intercepted:
-                timeframes = detail_intercepted
+                trends = {tf: v['trend'] for tf, v in detail_intercepted.items()}
+                flags  = {tf: v['flags'] for tf, v in detail_intercepted.items()}
             else:
                 # DOM fallback: look for rows containing a timeframe label + trend word
                 body_text = await page.inner_text("body")
-                tf_labels = ["15M", "1H", "2H", "4H", "8H", "12H", "1D", "3D", "1W"]
+                tf_labels = ["15M", "1H", "2H", "4H", "8H", "12H", "1D", "2D", "3D", "4D", "1W"]
                 lines = body_text.split('\n')
                 for i, line in enumerate(lines):
                     line_up = line.upper().strip()
                     for label in tf_labels:
-                        if label in line_up and len(line_up) < 20:  # Short label lines only
-                            block = " ".join(lines[i:i+3]).upper()
+                        if label == line_up or (label in line_up and len(line_up) < 20):
+                            block = " ".join(lines[i:i+5]).upper()
                             if 'LONG' in block or 'BULLISH' in block:
-                                timeframes[label] = 'LONG'
+                                trends[label] = 'LONG'
                             elif 'SHORT' in block or 'BEARISH' in block:
-                                timeframes[label] = 'SHORT'
+                                trends[label] = 'SHORT'
                             elif 'NEUTRAL' in block:
-                                timeframes[label] = 'NEUTRAL'
+                                trends[label] = 'NEUTRAL'
+                            # Try to capture flags from the nearby block
+                            tf_flags = []
+                            if 'GOLDEN CROSS' in block:
+                                tf_flags.append('Golden Cross')
+                            if 'DEATH CROSS' in block:
+                                tf_flags.append('Death Cross')
+                            if label in trends:
+                                flags[label] = tf_flags
                             break
         except Exception as e:
             logger.warning(f"Detail page navigation failed for {symbol}: {e}")
         finally:
-            # Unsubscribe the per-asset handler to avoid stale callbacks
             page.remove_listener("response", handle_tf_response)
-            # Navigate back to main dashboard to keep session warm
             try:
                 await page.goto("https://app.mangoresearch.co/dashboard",
                                 wait_until="domcontentloaded", timeout=20000)
@@ -453,7 +484,57 @@ class MangoDashboardScraper:
             except Exception:
                 pass
 
-        return timeframes
+        return {'trends': trends, 'flags': flags}
+
+    def _evaluate_mtf_filters(self, trends: dict, flags: dict) -> dict:
+        """
+        Evaluate whether an asset passes the user's saved MTF presets on the
+        Mango Research Dashboard.
+
+        Mango Bullish (from dashboard preset):
+            - 4H, 12H, 1D timeframes have the 'Golden Cross' indicator flag
+            - 2D, 4D trend is LONG
+
+        Mango Bearish (from dashboard preset):
+            - 4H, 12H, 1D timeframes have the 'Death Cross' indicator flag
+            - 2D, 4D trend is SHORT
+
+        Returns:
+            {'mtf_bullish': bool, 'mtf_bearish': bool}
+        """
+        def has_flag(tf: str, flag_name: str) -> bool:
+            """True only if we scraped flag data for this TF AND the flag is present."""
+            tf_flags = flags.get(tf)
+            if tf_flags is None:
+                return False  # No data = cannot confirm
+            return any(flag_name.lower() in f.lower() for f in tf_flags)
+
+        def has_trend(tf: str, required: str) -> bool:
+            """True only if we have trend data for this TF AND it matches."""
+            t = trends.get(tf)
+            if not t:
+                return False  # No data = cannot confirm
+            return t.upper() == required.upper()
+
+        # ── Mango Bullish ────────────────────────────────────────────────────
+        mtf_bullish = (
+            has_flag('4H',  'Golden Cross') and
+            has_flag('12H', 'Golden Cross') and
+            has_flag('1D',  'Golden Cross') and
+            has_trend('2D', 'LONG') and
+            has_trend('4D', 'LONG')
+        )
+
+        # ── Mango Bearish ────────────────────────────────────────────────────
+        mtf_bearish = (
+            has_flag('4H',  'Death Cross') and
+            has_flag('12H', 'Death Cross') and
+            has_flag('1D',  'Death Cross') and
+            has_trend('2D', 'SHORT') and
+            has_trend('4D', 'SHORT')
+        )
+
+        return {'mtf_bullish': mtf_bullish, 'mtf_bearish': mtf_bearish}
 
     def get_all_cached_assets(self) -> dict:
         """Return the full asset dict from cache (for the native signal detector)."""

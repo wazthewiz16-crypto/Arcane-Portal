@@ -90,6 +90,16 @@ class MangoNativeSignalDetector:
                 volatility = asset_data.get("volatility", 50)
                 flags      = asset_data.get("flags", [])
                 timeframes = asset_data.get("timeframes", {})
+                mtf_bullish = asset_data.get("mtf_bullish", False)
+                mtf_bearish = asset_data.get("mtf_bearish", False)
+
+                # Log MTF preset confirmation
+                if direction == "LONG" and mtf_bullish:
+                    logger.info(f"[MangoNative] {symbol} ✅ Mango Bullish preset CONFIRMED")
+                elif direction == "SHORT" and mtf_bearish:
+                    logger.info(f"[MangoNative] {symbol} ✅ Mango Bearish preset CONFIRMED")
+                elif mtf_bullish or mtf_bearish:
+                    logger.info(f"[MangoNative] {symbol} MTF preset present but opposite direction")
 
                 logger.info(f"[MangoNative] {symbol}: badge flip detected "
                             f"{prev_trend} → {current_trend}")
@@ -148,6 +158,8 @@ class MangoNativeSignalDetector:
                     tf_summary=tf_summary,
                     global_trend=global_trend,
                     global_vol=global_vol,
+                    mtf_bullish=mtf_bullish,
+                    mtf_bearish=mtf_bearish,
                 )
 
                 signals.append(signal)
@@ -318,6 +330,8 @@ class MangoNativeSignalDetector:
         tf_summary: Dict,
         global_trend: str,
         global_vol: int,
+        mtf_bullish: bool = False,
+        mtf_bearish: bool = False,
     ) -> Dict:
         """Construct the standardised signal dictionary."""
         tp_pct = DEFAULT_TP_PCT / 100.0
@@ -365,4 +379,8 @@ class MangoNativeSignalDetector:
             # Global market context
             "market_trend":      trend_emoji(global_trend),
             "market_volatility": global_vol,
+
+            # MTF filter preset match (from user's saved Mango dashboard presets)
+            "mtf_bullish":       mtf_bullish,
+            "mtf_bearish":       mtf_bearish,
         }
