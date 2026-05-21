@@ -48,12 +48,16 @@ async def run_scraper_and_detect():
     notifier = DiscordNotifier()
     
     # --- Mango Research Premium Dashboard Scraper (2-hour rate-limit cache update) ---
+    # Quiet hours: 11 PM – 5 AM EST — no scraping or signals during sleep hours
+    _mango_quiet = 23 <= now.hour or now.hour < 5
     try:
         from scraper.mango_dashboard import MangoDashboardScraper
         from datetime import datetime
         mango_scraper = MangoDashboardScraper()
         
-        if mango_scraper.is_enabled():
+        if _mango_quiet:
+            print("[MANGO DASHBOARD] 💤 Quiet hours (11 PM–5 AM EST) — dashboard scrape skipped.")
+        elif mango_scraper.is_enabled():
             print("\n[MANGO DASHBOARD] Confluence verification is ENABLED.")
             last_update_str = datastore.get_setting("MANGO_DASHBOARD_LAST_UPDATE")
             should_scrape = True
@@ -83,10 +87,13 @@ async def run_scraper_and_detect():
     # ---------------------------------------------------------------------------------
 
     # --- Mango-Native Signal Detection (runs after every dashboard scrape/cache load) ---
+    # Same quiet hours enforced: no signals 11 PM – 5 AM EST
     try:
         from scraper.mango_dashboard import MangoDashboardScraper as _MS
         _ms = _MS()
-        if _ms.is_enabled():
+        if _mango_quiet:
+            print("[MANGO NATIVE] 💤 Quiet hours (11 PM–5 AM EST) — native signal detection skipped.")
+        elif _ms.is_enabled():
             print("\n[MANGO NATIVE] Running dashboard-native signal detector...")
             from detection.mango_native_signals import MangoNativeSignalDetector
             native_detector = MangoNativeSignalDetector(datastore)
