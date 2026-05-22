@@ -397,11 +397,33 @@ class MangoSignalDetector:
                     logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - dormant compression range ({volatility} < 25).")
                     return None
                     
+            # 4. Individual Volatility Exhaustion and Warnings for Swings
+            flags = list(confluence.get('flags', []))
+            if not is_scalp:
+                max_vol = volatility if isinstance(volatility, int) else 50
+                tf_vols = confluence.get('timeframe_volatilities', {})
+                for tf in ['4H', '12H', '1D']:
+                    if tf in tf_vols:
+                        try:
+                            max_vol = max(max_vol, int(tf_vols[tf]))
+                        except (ValueError, TypeError):
+                            pass
+                
+                if max_vol > 90:
+                    logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - extreme swing volatility exhaustion ({max_vol} > 90).")
+                    return None
+                elif 85 < max_vol <= 90:
+                    old_conf = signal.get('confidence', 95.0)
+                    signal['confidence'] = max(50.0, old_conf - 20.0)
+                    logger.info(f"⚠️ Mango Volatility WARNING: {asset_name} {signal['signal_type']} confidence reduced from {old_conf}% to {signal['confidence']}% due to high volatility ({max_vol}).")
+                    flags.append("⚠️ High Volatility (Exhaustion Risk)")
+            
             # Attach confluence metrics to the signal dictionary for Discord embeds
             signal['mango_confluence'] = {
                 'trend_badge': '🟢 LONG' if trend_badge == 'LONG' else ('🔴 SHORT' if trend_badge == 'SHORT' else '🟣 NEUTRAL'),
                 'volatility': volatility,
-                'flags': confluence.get('flags', []),
+                'timeframe_volatilities': confluence.get('timeframe_volatilities', {}),
+                'flags': flags,
                 'market_trend': '🟢 LONG' if market_trend == 'LONG' else ('🔴 SHORT' if market_trend == 'SHORT' else '🟣 NEUTRAL'),
                 'market_volatility': market_volatility,
                 'mtf_bullish': confluence.get('mtf_bullish', False),

@@ -111,9 +111,13 @@ class MangoDashboardScraper:
                                     for k, v in obj.items():
                                         k_low = k.lower()
                                         if "market_trend" in k_low or "global_trend" in k_low or "overall_trend" in k_low:
-                                            v_str = str(v).upper()
-                                            if any(t in v_str for t in ['LONG', 'SHORT', 'NEUTRAL', 'BULLISH', 'BEARISH']):
-                                                intercepted_global['market_trend'] = 'LONG' if 'LONG' in v_str or 'BULL' in v_str else ('SHORT' if 'SHORT' in v_str or 'BEAR' in v_str else 'NEUTRAL')
+                                            if isinstance(v, int) or str(v).isdigit():
+                                                v_int = int(v)
+                                                intercepted_global['market_trend'] = 'NEUTRAL' if v_int == 0 else ('LONG' if v_int == 1 else ('SHORT' if v_int == 2 else 'NEUTRAL'))
+                                            else:
+                                                v_str = str(v).upper()
+                                                if any(t in v_str for t in ['LONG', 'SHORT', 'NEUTRAL', 'BULLISH', 'BEARISH']):
+                                                    intercepted_global['market_trend'] = 'LONG' if 'LONG' in v_str or 'BULL' in v_str else ('SHORT' if 'SHORT' in v_str or 'BEAR' in v_str else 'NEUTRAL')
                                         elif "market_vol" in k_low or "global_vol" in k_low or "overall_vol" in k_low:
                                             try:
                                                 intercepted_global['market_volatility'] = int(v)
@@ -124,14 +128,31 @@ class MangoDashboardScraper:
                                     if 'symbol' in obj or 'ticker' in obj:
                                         symbol = (obj.get('symbol') or obj.get('ticker', '')).upper()
                                         if symbol:
-                                            trend = str(obj.get('trend') or obj.get('badge') or obj.get('direction', '')).upper()
+                                            trend_val = obj.get('trend')
+                                            if trend_val is not None:
+                                                if isinstance(trend_val, int) or str(trend_val).isdigit():
+                                                    t_int = int(trend_val)
+                                                    trend = 'NEUTRAL' if t_int == 0 else ('LONG' if t_int == 1 else ('SHORT' if t_int == 2 else 'NEUTRAL'))
+                                                else:
+                                                    trend = str(trend_val).upper()
+                                            else:
+                                                trend = str(obj.get('badge') or obj.get('direction', '')).upper()
+
                                             # Validate if it's a known trend type
                                             if any(t in trend for t in ['LONG', 'SHORT', 'NEUTRAL', 'BULLISH', 'BEARISH']):
                                                 # Standardize ticker name (e.g. BTCUSDT -> BTC)
                                                 clean_sym = symbol.replace('USDT', '').replace('.P', '').split(':')[0]
+                                                
+                                                # Parse bbwp volatility float/int safely
+                                                bbwp_val = obj.get('bbwp') or obj.get('volatility') or obj.get('vol')
+                                                try:
+                                                    vol_int = int(round(float(bbwp_val))) if bbwp_val is not None else 50
+                                                except (ValueError, TypeError):
+                                                    vol_int = 50
+
                                                 intercepted_data[clean_sym] = {
                                                     'trend': 'LONG' if 'LONG' in trend or 'BULL' in trend else ('SHORT' if 'SHORT' in trend or 'BEAR' in trend else 'NEUTRAL'),
-                                                    'volatility': int(obj.get('volatility') or obj.get('vol') or 50),
+                                                    'volatility': vol_int,
                                                     'flags': obj.get('flags') or obj.get('indicators') or []
                                                 }
                                                 found_valid = True
@@ -160,6 +181,43 @@ class MangoDashboardScraper:
                 logger.error(f"Failed to load Mango Dashboard page: {e}")
                 await browser.close()
                 return False
+                
+            # --- Switch to CRYPTO Tab explicitly first ---
+            try:
+                logger.info("Ensuring we are on the CRYPTO tab...")
+                clicked_crypto = False
+                for selector in [
+                    "button:has-text('CRYPTO')",
+                    "text=CRYPTO",
+                    "[role='button']:has-text('CRYPTO')",
+                    "div:has-text('CRYPTO')"
+                ]:
+                    try:
+                        loc = page.locator(selector).first
+                        if await loc.is_visible():
+                            await loc.click()
+                            clicked_crypto = True
+                            logger.info(f"Successfully clicked CRYPTO tab using selector: {selector}")
+                            break
+                    except Exception as e:
+                        logger.debug(f"Selector {selector} failed to click CRYPTO: {e}")
+                
+                if not clicked_crypto:
+                    buttons = page.locator("button")
+                    count = await buttons.count()
+                    for idx in range(count):
+                        btn = buttons.nth(idx)
+                        text = await btn.inner_text()
+                        if "CRYPTO" in text.upper():
+                            await btn.click()
+                            clicked_crypto = True
+                            logger.info(f"Clicked CRYPTO tab by iterating buttons at index {idx}")
+                            break
+                            
+                if clicked_crypto:
+                    await asyncio.sleep(8)  # Wait for tab switch and render
+            except Exception as e:
+                logger.error(f"Error switching to CRYPTO tab: {e}")
                 
             # --- Fallback & Global DOM Parser (Part 1: Crypto & Global Metrics) ---
             dom_data = {}
@@ -263,7 +321,7 @@ class MangoDashboardScraper:
                             
                 if clicked_tradfi:
                     # Wait for network requests and DOM updates on TRADFI tab
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(8)
                     
                     # Take a premium visual backup screenshot of the TRADFI page
                     screenshots_dir = Path("data/screenshots")
@@ -332,9 +390,18 @@ class MangoDashboardScraper:
                 await browser.close()
                 return False
                 
+            # Core watchlist assets we actively track and trade
+            CORE_SCRAPE_ASSETS = {
+                "BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "LINK", "ARB", "AVAX", "ADA", "HYPE",
+                "SPY", "QQQ", "GLD", "SLV", "USO", "SPX", "NDX", "GOLD", "SILVER", "OIL"
+            }
+
             # --- Per-asset timeframe breakdown scraping ---
-            # Navigate each non-NEUTRAL asset's detail page to capture TF alignment
+            # Navigate each non-NEUTRAL core asset's detail page to capture TF alignment
             for sym, asset_info in list(final_assets.items()):
+                sym_up = sym.upper()
+                if sym_up not in CORE_SCRAPE_ASSETS:
+                    continue
                 if asset_info.get('trend', 'NEUTRAL') == 'NEUTRAL':
                     continue  # Only scrape detail for directional assets
                 try:
@@ -342,8 +409,10 @@ class MangoDashboardScraper:
                     if tf_result:
                         trends = tf_result.get('trends', {})
                         flags  = tf_result.get('flags', {})
+                        vols   = tf_result.get('volatilities', {})
                         final_assets[sym]['timeframes']      = trends
                         final_assets[sym]['timeframe_flags'] = flags
+                        final_assets[sym]['timeframe_volatilities'] = vols
                         mtf = self._evaluate_mtf_filters(trends, flags)
                         final_assets[sym]['mtf_bullish'] = mtf['mtf_bullish']
                         final_assets[sym]['mtf_bearish'] = mtf['mtf_bearish']
@@ -499,22 +568,35 @@ class MangoDashboardScraper:
                                 tf_key = (obj.get('timeframe') or obj.get('tf')
                                           or obj.get('interval'))
                                 trend  = (obj.get('trend') or obj.get('badge')
-                                          or obj.get('direction', ''))
-                                if tf_key and trend:
-                                    t_str  = str(trend).upper()
-                                    mapped = ('LONG'    if 'LONG'  in t_str or 'BULL' in t_str
-                                              else 'SHORT'   if 'SHORT' in t_str or 'BEAR' in t_str
-                                              else 'NEUTRAL')
+                                          or obj.get('direction'))
+                                if tf_key and trend is not None:
+                                    if isinstance(trend, int) or str(trend).isdigit():
+                                        t_int = int(trend)
+                                        mapped = 'NEUTRAL' if t_int == 0 else ('LONG' if t_int == 1 else ('SHORT' if t_int == 2 else 'NEUTRAL'))
+                                    else:
+                                        t_str  = str(trend).upper()
+                                        mapped = ('LONG'    if 'LONG'  in t_str or 'BULL' in t_str
+                                                  else 'SHORT'   if 'SHORT' in t_str or 'BEAR' in t_str
+                                                  else 'NEUTRAL')
                                     # Capture indicator flags for this timeframe
                                     raw_flags = (obj.get('flags') or obj.get('indicators')
                                                  or obj.get('signals') or [])
                                     if isinstance(raw_flags, str):
                                         raw_flags = [raw_flags]
                                     clean_flags = [str(f).strip() for f in raw_flags if f]
+
+                                    # Capture bbwp volatility for this timeframe
+                                    bbwp_val = obj.get('bbwp') or obj.get('volatility') or obj.get('vol')
+                                    try:
+                                        tf_vol = int(round(float(bbwp_val))) if bbwp_val is not None else 50
+                                    except (ValueError, TypeError):
+                                        tf_vol = 50
+
                                     tf_label = str(tf_key).upper()
                                     detail_intercepted[tf_label] = {
                                         'trend': mapped,
-                                        'flags': clean_flags
+                                        'flags': clean_flags,
+                                        'volatility': tf_vol
                                     }
                                 for v in obj.values():
                                     scan_tf(v)
@@ -536,6 +618,7 @@ class MangoDashboardScraper:
             if detail_intercepted:
                 trends = {tf: v['trend'] for tf, v in detail_intercepted.items()}
                 flags  = {tf: v['flags'] for tf, v in detail_intercepted.items()}
+                vols   = {tf: v['volatility'] for tf, v in detail_intercepted.items()}
             else:
                 # DOM fallback: look for rows containing a timeframe label + trend word
                 body_text = await page.inner_text("body")
@@ -561,18 +644,13 @@ class MangoDashboardScraper:
                             if label in trends:
                                 flags[label] = tf_flags
                             break
+                vols = {tf: 50 for tf in trends}
         except Exception as e:
             logger.warning(f"Detail page navigation failed for {symbol}: {e}")
         finally:
             page.remove_listener("response", handle_tf_response)
-            try:
-                await page.goto("https://app.mangoresearch.co/dashboard",
-                                wait_until="domcontentloaded", timeout=20000)
-                await asyncio.sleep(2)
-            except Exception:
-                pass
 
-        return {'trends': trends, 'flags': flags}
+        return {'trends': trends, 'flags': flags, 'volatilities': vols}
 
     def _evaluate_mtf_filters(self, trends: dict, flags: dict) -> dict:
         """

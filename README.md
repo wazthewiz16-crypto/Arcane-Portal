@@ -231,12 +231,21 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-05-20
+**Latest Update:** 2026-05-22
 
-- **Mango Research Premium Dashboard Integration (NEW)**: Natively scrapes `app.mangoresearch.co` in the background (with 2-hour rate-limiting to optimize compute costs) using Playwright with robust network sniffing and DOM-parsing fallbacks.
-- **Global Market Trend Opposite Blocking (NEW)**: Blocks standard TradingView signals from firing if they fight the overall global market trend (e.g., blocking LONG signals when the market is in a global SHORT regime).
-- **Scalp Volatility Filters (NEW)**: Enforces individual asset volatility gates for scalp signals, filtering out trades in extreme exhaustion zones (`>85`) or dormant compression zones (`<25`).
-- **Custom MTF Button Preset Verification (NEW)**: Validates signals against custom **Mango Bullish** (4H, 12H, 1D Golden Cross + 2D, 4D LONG) and **Mango Bearish** (4H, 12H, 1D Death Cross + 2D, 4D SHORT) dashboard presets. Standard TradingView Discord embeds now print these preset alignment statuses under a premium "Mango Premium Confluence" panel.
+- **Mango Research Scraper & Dynamic Volatility Resolution (NEW)**:
+  - **Sequential Tab Scraping**: Refactored the Playwright scraper into sequential, fully-isolated Crypto and TradFi scraping phases with 8-second tab-switching delays to prevent memory leaks and timeouts on Railway.
+  - **Watchlist Filtering Optimization**: Restricted detail-page crawling strictly to core traded assets (`CORE_SCRAPE_ASSETS`) to prevent browser lockups and massive page-goto overhead.
+  - **Integer Trend Correction**: Decoded API trends (`0` = NEUTRAL, `1` = LONG, `2` = SHORT) in both global and detail sniffer responses to resolve the issue where crypto/TradFi assets were shown as "UNLISTED".
+  - **Bollinger Band Width Percentile (`bbwp`) Volatility**: Switched sniffers to parse `"bbwp"` first to fetch real, high-fidelity volatility values instead of default/neutral `50` values.
+- **Swing Trade Volatility Exhaustion Filter (NEW)**:
+  - Added a dual-tier volatility gate for Swing trades evaluating both overall asset and timeframe-specific (4H, 12H, 1D) volatilities:
+    - **Extreme Volatility (> 90)**: Blocks Swing trade entry completely to avoid entering exhausted trends.
+    - **High Volatility (85 to 90)**: Deducts 20.0% from signal confidence and appends a warning badge (`⚠️ High Volatility (Exhaustion Risk)`).
+- **Mango Research Premium Dashboard Integration**: Natively scrapes `app.mangoresearch.co` in the background (with 2-hour rate-limiting to optimize compute costs) using Playwright with robust network sniffing and DOM-parsing fallbacks.
+- **Global Market Trend Opposite Blocking**: Blocks standard TradingView signals from firing if they fight the overall global market trend (e.g., blocking LONG signals when the market is in a global SHORT regime).
+- **Scalp Volatility Filters**: Enforces individual asset volatility gates for scalp signals, filtering out trades in extreme exhaustion zones (`>85`) or dormant compression zones (`<25`).
+- **Custom MTF Button Preset Verification**: Validates signals against custom **Mango Bullish** (4H, 12H, 1D Golden Cross + 2D, 4D LONG) and **Mango Bearish** (4H, 12H, 1D Death Cross + 2D, 4D SHORT) dashboard presets. Standard TradingView Discord embeds now print these preset alignment statuses under a premium "Mango Premium Confluence" panel.
 - **Mango-Native Signal Detection (NEW)**: Created a separate, premium gold-colored alert class (`detection/mango_native_signals.py`) triggered by dashboard asset badge flips (e.g. `NEUTRAL ➔ LONG`). Signals generate when ≥60% of timeframes align with the new badge trend.
 - **Sleep Schedule Quiet Hours (NEW)**: Restricts all Mango dashboard scraping and native signal generation between 11:00 PM and 5:00 AM EST to align with sleep schedules, conserving resources and preventing late-night noise.
 - **Database Session State Capture (NEW)**: Added an interactive session capture helper (`interactive_login_mango.py`) with automatic Windows terminal console UTF-8 wrappers. The script securely uploads authenticated cookie/storage states directly to PostgreSQL (`MANGO_DASHBOARD_STATE`) with a local backup (`mango_state.json`) for seamless background running.
