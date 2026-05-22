@@ -315,6 +315,8 @@ class MangoDataStore:
         if USE_POSTGRES:
             # Convert ? to %s for PostgreSQL
             pg_query = query.replace('?', '%s')
+            # Escape literal % characters for psycopg2 by doubling them (except parameters %s)
+            pg_query = pg_query.replace('%', '%%').replace('%%s', '%s')
             # Convert INSERT OR REPLACE to INSERT ... ON CONFLICT
             if 'INSERT OR REPLACE' in pg_query:
                 pg_query = pg_query.replace('INSERT OR REPLACE', 'INSERT')

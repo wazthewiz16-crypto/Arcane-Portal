@@ -321,9 +321,9 @@ async def run_scraper_and_detect():
 
 if __name__ == "__main__":
     try:
-        # Wrap the entire process in a 15-minute timeout to prevent headless Playwright 
+        # Wrap the entire process in a 60-minute timeout to prevent headless Playwright 
         # deadlocks in the Railway Docker container which causes silent cron failures.
-        asyncio.run(asyncio.wait_for(run_scraper_and_detect(), timeout=1800))
+        asyncio.run(asyncio.wait_for(run_scraper_and_detect(), timeout=3600))
     except asyncio.TimeoutError:
-        print("❌ CRITICAL: Scraper run timed out after 30 minutes! Probable Playwright deadlock.")
+        print("❌ CRITICAL: Scraper run timed out after 60 minutes! Probable Playwright deadlock.")
         sys.exit(1)
