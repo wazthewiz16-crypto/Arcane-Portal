@@ -422,9 +422,9 @@ class MangoDashboardScraper:
             
             # Combine sniffed and DOM data (sniffed has priority)
             final_assets = {**dom_data, **intercepted_data}
-            # Explicitly store base timeframe "4H" for all assets
+            # Explicitly store base timeframe "1D" for all assets
             for sym in final_assets:
-                final_assets[sym]["timeframe"] = "4H"
+                final_assets[sym]["timeframe"] = "1D"
             
             if not final_assets:
                 logger.error("No coin data could be extracted from Mango Research Dashboard. Session might be expired!")
@@ -469,7 +469,7 @@ class MangoDashboardScraper:
             # Create standardized payload with global market variables
             result = {
                 "updated_at": datetime.utcnow().isoformat() + "Z",
-                "timeframe": "4H",  # Base timeframe for the trend badges on the main dashboard page
+                "timeframe": "1D",  # Base timeframe for the trend badges on the main dashboard page
                 "market_trend": final_market_trend,
                 "market_volatility": final_market_volatility,
                 "assets": final_assets

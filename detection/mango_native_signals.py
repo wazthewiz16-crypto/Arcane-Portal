@@ -92,7 +92,7 @@ class MangoNativeSignalDetector:
                 timeframes = asset_data.get("timeframes", {})
                 mtf_bullish = asset_data.get("mtf_bullish", False)
                 mtf_bearish = asset_data.get("mtf_bearish", False)
-                timeframe  = asset_data.get("timeframe", "4H")
+                timeframe  = asset_data.get("timeframe", "1D")
 
                 # Log MTF preset confirmation
                 if direction == "LONG" and mtf_bullish:
@@ -381,7 +381,7 @@ class MangoNativeSignalDetector:
         mtf_bullish: bool = False,
         mtf_bearish: bool = False,
         override_confidence: float = None,
-        timeframe: str = "4H",
+        timeframe: str = "1D",
     ) -> Dict:
         """Construct the standardised signal dictionary."""
         tp_pct = DEFAULT_TP_PCT / 100.0
