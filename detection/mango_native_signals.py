@@ -90,6 +90,7 @@ class MangoNativeSignalDetector:
                 volatility = asset_data.get("volatility", 50)
                 flags      = asset_data.get("flags", [])
                 timeframes = asset_data.get("timeframes", {})
+                timeframe_volatilities = asset_data.get("timeframe_volatilities", {})
                 mtf_bullish = asset_data.get("mtf_bullish", False)
                 mtf_bearish = asset_data.get("mtf_bearish", False)
                 timeframe  = asset_data.get("timeframe", "1D")
@@ -115,13 +116,25 @@ class MangoNativeSignalDetector:
                     continue
 
                 # ── 3. Volatility gate ──────────────────────────────────────
-                if volatility <= VOL_MIN:
+                # Low volatility (blue) < 30 is safe and encouraged, do NOT block it!
+                # High volatility (red) >= 80 indicates exhaustion, block completely.
+                if volatility >= 80:
                     logger.info(f"[MangoNative] {symbol} skipped — "
-                                f"volatility too low ({volatility} ≤ {VOL_MIN}), dormant range.")
+                                f"volatility is high ({volatility} ≥ 80), exhaustion range.")
                     continue
-                if volatility >= VOL_MAX:
-                    logger.info(f"[MangoNative] {symbol} skipped — "
-                                f"volatility too high ({volatility} ≥ {VOL_MAX}), exhaustion zone.")
+                
+                # Check major timeframes (4H, 12H, 1D). If any has high (red) volatility >= 80, block
+                high_tf_vols = []
+                for tf in ["4H", "12H", "1D"]:
+                    if tf in timeframe_volatilities:
+                        try:
+                            tf_vol = int(timeframe_volatilities[tf])
+                            if tf_vol >= 80:
+                                high_tf_vols.append(f"{tf}: {tf_vol}")
+                        except (ValueError, TypeError):
+                            pass
+                if high_tf_vols:
+                    logger.info(f"[MangoNative] {symbol} skipped — high timeframe volatility detected in {', '.join(high_tf_vols)} (exhaustion zone).")
                     continue
 
                 # ── 4. Global market trend gate ─────────────────────────────
@@ -180,6 +193,11 @@ class MangoNativeSignalDetector:
                         calculated_confidence += 10.0
                         logger.info(f"[MangoNative] {symbol} SHORT confidence boosted by +10% due to confirming flags: {', '.join(confirming)}")
                 
+                # Volatility Quality Boost: low (blue) volatility (< 30) is safer to enter
+                if volatility < 30:
+                    calculated_confidence += 10.0
+                    logger.info(f"[MangoNative] {symbol} confidence boosted by +10% due to low (blue) volatility: {volatility}")
+
                 calculated_confidence = max(0.0, min(100.0, calculated_confidence))
                 
                 if calculated_confidence < ALIGNMENT_THRESHOLD * 100:

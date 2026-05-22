@@ -388,16 +388,28 @@ class MangoSignalDetector:
                 logger.info(f"🚫 Mango Confluence BLOCKED: {asset_name} SHORT signal fights LONG dashboard trend badge!")
                 return None
                 
-            # 3. Individual Volatility Exhaustion and Compression Filters for Scalps
-            if is_scalp:
-                if volatility > 85:
-                    logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - extreme volatility exhaustion ({volatility} > 85).")
-                    return None
-                if volatility < 25:
-                    logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - dormant compression range ({volatility} < 25).")
-                    return None
-                    
-            # 4. Individual Volatility Exhaustion and Warnings for Swings
+            # 3. Volatility gate
+            # Low volatility (blue) < 30 is safe and encouraged, do NOT block it (bypass any compression filters).
+            # High volatility (red) >= 80 indicates exhaustion, block completely.
+            if volatility >= 80:
+                logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - extreme volatility exhaustion ({volatility} >= 80).")
+                return None
+                
+            # Check major timeframes (4H, 12H, 1D). If any has high (red) volatility >= 80, block
+            tf_vols = confluence.get('timeframe_volatilities', {})
+            high_tf_vols = []
+            for tf in ['4H', '12H', '1D']:
+                if tf in tf_vols:
+                    try:
+                        tf_vol = int(tf_vols[tf])
+                        if tf_vol >= 80:
+                            high_tf_vols.append(f"{tf}: {tf_vol}")
+                    except (ValueError, TypeError):
+                        pass
+            if high_tf_vols:
+                logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - high timeframe volatility detected in {', '.join(high_tf_vols)} (exhaustion zone).")
+                return None
+
             flags = list(confluence.get('flags', []))
             
             # Technical Flags Quality Rules
@@ -438,6 +450,11 @@ class MangoSignalDetector:
                     calculated_confidence += 10.0
                     logger.info(f"✨ Mango Flags BOOST: {asset_name} SHORT confidence boosted by +10% due to confirming flags: {', '.join(confirming)}")
             
+            # Volatility Quality Boost: low (blue) volatility (< 30) is safer to enter
+            if volatility < 30:
+                calculated_confidence += 10.0
+                logger.info(f"✨ Mango Volatility BOOST: {asset_name} confidence boosted by +10% due to low (blue) volatility: {volatility}")
+            
             calculated_confidence = max(0.0, min(100.0, calculated_confidence))
             
             alignment_threshold_pct = 60.0
@@ -446,25 +463,6 @@ class MangoSignalDetector:
                 return None
                 
             signal['confidence'] = calculated_confidence
-
-            if not is_scalp:
-                max_vol = volatility if isinstance(volatility, int) else 50
-                tf_vols = confluence.get('timeframe_volatilities', {})
-                for tf in ['4H', '12H', '1D']:
-                    if tf in tf_vols:
-                        try:
-                            max_vol = max(max_vol, int(tf_vols[tf]))
-                        except (ValueError, TypeError):
-                            pass
-                
-                if max_vol > 90:
-                    logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - extreme swing volatility exhaustion ({max_vol} > 90).")
-                    return None
-                elif 85 < max_vol <= 90:
-                    old_conf = signal.get('confidence', 95.0)
-                    signal['confidence'] = max(50.0, old_conf - 20.0)
-                    logger.info(f"⚠️ Mango Volatility WARNING: {asset_name} {signal['signal_type']} confidence reduced from {old_conf}% to {signal['confidence']}% due to high volatility ({max_vol}).")
-                    flags.append("⚠️ High Volatility (Exhaustion Risk)")
             
             # Attach confluence metrics to the signal dictionary for Discord embeds
             signal['mango_confluence'] = {
