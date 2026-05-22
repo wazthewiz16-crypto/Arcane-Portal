@@ -40,6 +40,44 @@ class MangoDashboardScraper:
                     f.write(os.getenv("MANGO_DASHBOARD_STATE_JSON"))
             except Exception as e:
                 logger.error(f"Failed to restore state from env: {e}")
+
+    def standardize_flags(self, raw_flags) -> list:
+        """Standardize raw scraped flags/indicators into official Mango premium flag names from the guide."""
+        if not raw_flags:
+            return []
+        if isinstance(raw_flags, str):
+            raw_flags = [raw_flags]
+            
+        mapped = []
+        for f in raw_flags:
+            if not f:
+                continue
+            f_up = str(f).upper().strip()
+            
+            # Standardize using the guide names:
+            if "GOLDEN" in f_up or "GOLD_CROSS" in f_up:
+                mapped.append("Golden Cross")
+            elif "DEATH" in f_up or "DEATH_CROSS" in f_up:
+                mapped.append("Death Cross")
+            elif "BULLISH ICHIMOKU" in f_up or "ICHIMOKU_BULL" in f_up or ("ICHIMOKU" in f_up and "BULL" in f_up):
+                mapped.append("Bullish Ichimoku")
+            elif "BEARISH ICHIMOKU" in f_up or "ICHIMOKU_BEAR" in f_up or ("ICHIMOKU" in f_up and "BEAR" in f_up):
+                mapped.append("Bearish Ichimoku")
+            elif "RSI BULLISH DIVERGENCE" in f_up or "RSI_BULL_DIV" in f_up or ("RSI" in f_up and "BULL" in f_up and "DIV" in f_up):
+                mapped.append("RSI Bullish Divergence")
+            elif "RSI BEARISH DIVERGENCE" in f_up or "RSI_BEAR_DIV" in f_up or ("RSI" in f_up and "BEAR" in f_up and "DIV" in f_up):
+                mapped.append("RSI Bearish Divergence")
+            elif "CHEAP" in f_up or "DISCOUNT" in f_up:
+                mapped.append("Cheap / Discount")
+            elif "EXPENSIVE" in f_up or "PREMIUM" in f_up:
+                mapped.append("Expensive / Premium")
+            elif "HOTLIST" in f_up:
+                mapped.append("Mango Hotlist")
+            else:
+                mapped.append(str(f).title())
+                
+        seen = set()
+        return [x for x in mapped if not (x in seen or seen.add(x))]
                 
     def is_enabled(self) -> bool:
         """Check if Mango Dashboard confluence is enabled in settings"""
@@ -153,7 +191,7 @@ class MangoDashboardScraper:
                                                 intercepted_data[clean_sym] = {
                                                     'trend': 'LONG' if 'LONG' in trend or 'BULL' in trend else ('SHORT' if 'SHORT' in trend or 'BEAR' in trend else 'NEUTRAL'),
                                                     'volatility': vol_int,
-                                                    'flags': obj.get('flags') or obj.get('indicators') or []
+                                                    'flags': self.standardize_flags(obj.get('flags') or obj.get('indicators') or [])
                                                 }
                                                 found_valid = True
                                     for v in obj.values():
@@ -384,6 +422,9 @@ class MangoDashboardScraper:
             
             # Combine sniffed and DOM data (sniffed has priority)
             final_assets = {**dom_data, **intercepted_data}
+            # Explicitly store base timeframe "4H" for all assets
+            for sym in final_assets:
+                final_assets[sym]["timeframe"] = "4H"
             
             if not final_assets:
                 logger.error("No coin data could be extracted from Mango Research Dashboard. Session might be expired!")
@@ -428,6 +469,7 @@ class MangoDashboardScraper:
             # Create standardized payload with global market variables
             result = {
                 "updated_at": datetime.utcnow().isoformat() + "Z",
+                "timeframe": "4H",  # Base timeframe for the trend badges on the main dashboard page
                 "market_trend": final_market_trend,
                 "market_volatility": final_market_volatility,
                 "assets": final_assets
@@ -582,9 +624,7 @@ class MangoDashboardScraper:
                                     # Capture indicator flags for this timeframe
                                     raw_flags = (obj.get('flags') or obj.get('indicators')
                                                  or obj.get('signals') or [])
-                                    if isinstance(raw_flags, str):
-                                        raw_flags = [raw_flags]
-                                    clean_flags = [str(f).strip() for f in raw_flags if f]
+                                    clean_flags = self.standardize_flags(raw_flags)
 
                                     # Capture bbwp volatility for this timeframe
                                     bbwp_val = obj.get('bbwp') or obj.get('volatility') or obj.get('vol')
@@ -638,10 +678,26 @@ class MangoDashboardScraper:
                                 trends[label] = 'NEUTRAL'
                             # Try to capture flags from the nearby block
                             tf_flags = []
-                            if 'GOLDEN CROSS' in block:
+                            block_up = block.upper()
+                            if 'GOLDEN CROSS' in block_up or 'GOLDEN_CROSS' in block_up:
                                 tf_flags.append('Golden Cross')
-                            if 'DEATH CROSS' in block:
+                            if 'DEATH CROSS' in block_up or 'DEATH_CROSS' in block_up:
                                 tf_flags.append('Death Cross')
+                            if 'BULLISH ICHIMOKU' in block_up or 'ICHIMOKU BULLISH' in block_up:
+                                tf_flags.append('Bullish Ichimoku')
+                            if 'BEARISH ICHIMOKU' in block_up or 'ICHIMOKU BEARISH' in block_up:
+                                tf_flags.append('Bearish Ichimoku')
+                            if 'RSI BULLISH DIVERGENCE' in block_up or 'RSI_BULLISH_DIV' in block_up:
+                                tf_flags.append('RSI Bullish Divergence')
+                            if 'RSI BEARISH DIVERGENCE' in block_up or 'RSI_BEARISH_DIV' in block_up:
+                                tf_flags.append('RSI Bearish Divergence')
+                            if 'CHEAP' in block_up or 'DISCOUNT' in block_up:
+                                tf_flags.append('Cheap / Discount')
+                            if 'EXPENSIVE' in block_up or 'PREMIUM' in block_up:
+                                tf_flags.append('Expensive / Premium')
+                            if 'HOTLIST' in block_up or 'MANGO HOTLIST' in block_up:
+                                tf_flags.append('Mango Hotlist')
+                                
                             if label in trends:
                                 flags[label] = tf_flags
                             break

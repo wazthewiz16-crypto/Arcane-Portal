@@ -399,6 +399,54 @@ class MangoSignalDetector:
                     
             # 4. Individual Volatility Exhaustion and Warnings for Swings
             flags = list(confluence.get('flags', []))
+            
+            # Technical Flags Quality Rules
+            BULLISH_FLAGS = ["Golden Cross", "Bullish Ichimoku", "RSI Bullish Divergence", "Cheap / Discount"]
+            BEARISH_FLAGS = ["Death Cross", "Bearish Ichimoku", "RSI Bearish Divergence", "Expensive / Premium"]
+            
+            calculated_confidence = float(signal.get('confidence', 95.0))
+            
+            if sig_direction == "LONG":
+                blocking_flags = [f for f in flags if f in ["Death Cross", "Bearish Ichimoku"]]
+                if blocking_flags:
+                    logger.info(f"🚫 Mango Flags BLOCKED: {asset_name} LONG signal blocked due to major contrarian flags: {', '.join(blocking_flags)}")
+                    return None
+                    
+                mild_contrarian = [f for f in flags if f in ["Expensive / Premium", "RSI Bearish Divergence"]]
+                if mild_contrarian:
+                    calculated_confidence -= 20.0
+                    logger.info(f"⚠️ Mango Flags PENALTY: {asset_name} LONG confidence penalized by -20% due to mild contrarian flags: {', '.join(mild_contrarian)}")
+                    
+                confirming = [f for f in flags if f in BULLISH_FLAGS]
+                if confirming:
+                    calculated_confidence += 10.0
+                    logger.info(f"✨ Mango Flags BOOST: {asset_name} LONG confidence boosted by +10% due to confirming flags: {', '.join(confirming)}")
+                    
+            else:  # SHORT
+                blocking_flags = [f for f in flags if f in ["Golden Cross", "Bullish Ichimoku"]]
+                if blocking_flags:
+                    logger.info(f"🚫 Mango Flags BLOCKED: {asset_name} SHORT signal blocked due to major contrarian flags: {', '.join(blocking_flags)}")
+                    return None
+                    
+                mild_contrarian = [f for f in flags if f in ["Cheap / Discount", "RSI Bullish Divergence"]]
+                if mild_contrarian:
+                    calculated_confidence -= 20.0
+                    logger.info(f"⚠️ Mango Flags PENALTY: {asset_name} SHORT confidence penalized by -20% due to mild contrarian flags: {', '.join(mild_contrarian)}")
+                    
+                confirming = [f for f in flags if f in BEARISH_FLAGS]
+                if confirming:
+                    calculated_confidence += 10.0
+                    logger.info(f"✨ Mango Flags BOOST: {asset_name} SHORT confidence boosted by +10% due to confirming flags: {', '.join(confirming)}")
+            
+            calculated_confidence = max(0.0, min(100.0, calculated_confidence))
+            
+            alignment_threshold_pct = 60.0
+            if calculated_confidence < alignment_threshold_pct:
+                logger.info(f"🚫 Mango Flags BLOCKED: {asset_name} {sig_direction} signal blocked - penalized confidence {calculated_confidence:.1f}% is below threshold {alignment_threshold_pct}%")
+                return None
+                
+            signal['confidence'] = calculated_confidence
+
             if not is_scalp:
                 max_vol = volatility if isinstance(volatility, int) else 50
                 tf_vols = confluence.get('timeframe_volatilities', {})

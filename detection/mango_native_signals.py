@@ -92,6 +92,7 @@ class MangoNativeSignalDetector:
                 timeframes = asset_data.get("timeframes", {})
                 mtf_bullish = asset_data.get("mtf_bullish", False)
                 mtf_bearish = asset_data.get("mtf_bearish", False)
+                timeframe  = asset_data.get("timeframe", "4H")
 
                 # Log MTF preset confirmation
                 if direction == "LONG" and mtf_bullish:
@@ -140,6 +141,51 @@ class MangoNativeSignalDetector:
                                 f"duplicate within {DEDUP_WINDOW_HOURS}h window.")
                     continue
 
+                # ── 5.5. Technical Flags Quality Rules ──────────────────────
+                BULLISH_FLAGS = ["Golden Cross", "Bullish Ichimoku", "RSI Bullish Divergence", "Cheap / Discount"]
+                BEARISH_FLAGS = ["Death Cross", "Bearish Ichimoku", "RSI Bearish Divergence", "Expensive / Premium"]
+                
+                calculated_confidence = tf_pct * 100
+                active_flags = list(flags)
+                
+                if direction == "LONG":
+                    blocking_flags = [f for f in active_flags if f in ["Death Cross", "Bearish Ichimoku"]]
+                    if blocking_flags:
+                        logger.info(f"[MangoNative] {symbol} LONG blocked — has major contrarian flags: {', '.join(blocking_flags)}")
+                        continue
+                        
+                    mild_contrarian = [f for f in active_flags if f in ["Expensive / Premium", "RSI Bearish Divergence"]]
+                    if mild_contrarian:
+                        calculated_confidence -= 20.0
+                        logger.info(f"[MangoNative] {symbol} LONG confidence penalized by -20% due to mild contrarian flags: {', '.join(mild_contrarian)}")
+                        
+                    confirming = [f for f in active_flags if f in BULLISH_FLAGS]
+                    if confirming:
+                        calculated_confidence += 10.0
+                        logger.info(f"[MangoNative] {symbol} LONG confidence boosted by +10% due to confirming flags: {', '.join(confirming)}")
+                        
+                else:  # SHORT
+                    blocking_flags = [f for f in active_flags if f in ["Golden Cross", "Bullish Ichimoku"]]
+                    if blocking_flags:
+                        logger.info(f"[MangoNative] {symbol} SHORT blocked — has major contrarian flags: {', '.join(blocking_flags)}")
+                        continue
+                        
+                    mild_contrarian = [f for f in active_flags if f in ["Cheap / Discount", "RSI Bullish Divergence"]]
+                    if mild_contrarian:
+                        calculated_confidence -= 20.0
+                        logger.info(f"[MangoNative] {symbol} SHORT confidence penalized by -20% due to mild contrarian flags: {', '.join(mild_contrarian)}")
+                        
+                    confirming = [f for f in active_flags if f in BEARISH_FLAGS]
+                    if confirming:
+                        calculated_confidence += 10.0
+                        logger.info(f"[MangoNative] {symbol} SHORT confidence boosted by +10% due to confirming flags: {', '.join(confirming)}")
+                
+                calculated_confidence = max(0.0, min(100.0, calculated_confidence))
+                
+                if calculated_confidence < ALIGNMENT_THRESHOLD * 100:
+                    logger.info(f"[MangoNative] {symbol} {direction} blocked — penalized confidence {calculated_confidence:.1f}% is below threshold {ALIGNMENT_THRESHOLD * 100}%")
+                    continue
+
                 # ── 6. Build signal ─────────────────────────────────────────
                 entry_price = self._get_latest_price(symbol)
                 if entry_price is None:
@@ -160,6 +206,8 @@ class MangoNativeSignalDetector:
                     global_vol=global_vol,
                     mtf_bullish=mtf_bullish,
                     mtf_bearish=mtf_bearish,
+                    override_confidence=calculated_confidence,
+                    timeframe=timeframe,
                 )
 
                 signals.append(signal)
@@ -332,6 +380,8 @@ class MangoNativeSignalDetector:
         global_vol: int,
         mtf_bullish: bool = False,
         mtf_bearish: bool = False,
+        override_confidence: float = None,
+        timeframe: str = "4H",
     ) -> Dict:
         """Construct the standardised signal dictionary."""
         tp_pct = DEFAULT_TP_PCT / 100.0
@@ -348,7 +398,11 @@ class MangoNativeSignalDetector:
 
         risk       = abs(entry_price - stop_loss)
         rr_ratio   = round(abs(take_profit - entry_price) / risk, 2) if risk else 2.0
-        confidence = round(tf_pct * 100, 1)   # % of TFs that agreed
+        
+        if override_confidence is not None:
+            confidence = round(override_confidence, 1)
+        else:
+            confidence = round(tf_pct * 100, 1)
 
         # Trend badge emoji helpers
         def trend_emoji(t: str) -> str:
@@ -366,6 +420,7 @@ class MangoNativeSignalDetector:
             "entry_time":   datetime.utcnow().isoformat() + "Z",
             "htf":          "Mango Dashboard",
             "ltf":          "Mango Dashboard",
+            "timeframe":    timeframe,
 
             # Mango-native metadata (used by Discord notifier formatting)
             "is_mango_native":   True,

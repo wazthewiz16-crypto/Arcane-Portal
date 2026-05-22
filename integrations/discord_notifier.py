@@ -209,7 +209,19 @@ class DiscordNotifier:
             ]
             flags = confluence.get('flags')
             if flags:
-                lines.append(f"   • Technical Flags: 📈 {', '.join(flags)}")
+                formatted_flags = []
+                bullish_flags = ["Golden Cross", "Bullish Ichimoku", "RSI Bullish Divergence", "Cheap / Discount", "Mango Hotlist"]
+                bearish_flags = ["Death Cross", "Bearish Ichimoku", "RSI Bearish Divergence", "Expensive / Premium"]
+                for f in flags:
+                    if f in bullish_flags:
+                        formatted_flags.append(f"🟢 {f}")
+                    elif f in bearish_flags:
+                        formatted_flags.append(f"🔴 {f}")
+                    elif f.startswith("⚠️"):
+                        formatted_flags.append(f)
+                    else:
+                        formatted_flags.append(f"⚪ {f}")
+                lines.append(f"   • Technical Flags: {', '.join(formatted_flags)}")
             # MTF preset filter status
             mtf_b = confluence.get('mtf_bullish', False)
             mtf_be = confluence.get('mtf_bearish', False)
@@ -290,6 +302,7 @@ class DiscordNotifier:
             f"{emoji_dir} **MANGO SIGNAL — {direction} — {signal['asset_name']}**",
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             f"📡 Badge Flip: {prev_icon} → {current_icon}",
+            f"📊 Timeframe: {signal.get('timeframe', '4H')}",
             mtf_line,
         ] + tf_lines + [
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -304,7 +317,19 @@ class DiscordNotifier:
         ]
 
         if flags:
-            lines.append(f"📌 Technical Flags: {', '.join(flags)}")
+            formatted_flags = []
+            bullish_flags = ["Golden Cross", "Bullish Ichimoku", "RSI Bullish Divergence", "Cheap / Discount", "Mango Hotlist"]
+            bearish_flags = ["Death Cross", "Bearish Ichimoku", "RSI Bearish Divergence", "Expensive / Premium"]
+            for f in flags:
+                if f in bullish_flags:
+                    formatted_flags.append(f"🟢 {f}")
+                elif f in bearish_flags:
+                    formatted_flags.append(f"🔴 {f}")
+                elif f.startswith("⚠️"):
+                    formatted_flags.append(f)
+                else:
+                    formatted_flags.append(f"⚪ {f}")
+            lines.append(f"📌 Technical Flags: {', '.join(formatted_flags)}")
 
         return "\n".join(lines)
     
