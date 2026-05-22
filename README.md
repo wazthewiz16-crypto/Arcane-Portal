@@ -9,7 +9,7 @@
 - 🔮 **Automated Signal Detection**: Swing and scalp signals using precise two-timeframe alignment
 - 🥭 **Mango Research Premium Dashboard Integration**: Natively scrapes `app.mangoresearch.co` in the background (with 2-hour rate-limiting to optimize compute costs) using Playwright. Captures high-fidelity individual asset trend badges, asset volatility, global market trend, and overall market volatility:
   - **Global Trend Opposite Blocking:** Blocks LONG signals if overall market trend is SHORT, and SHORT signals if overall market trend is LONG.
-  - **Scalp Volatility Filters:** Enforces an individual volatility gate for scalp signals, blocking trades on extreme exhaustion (`>85`) and dormant compression (`<25`) zones.
+  - **Refined Volatility Quality Gates:** Low volatility (`<30` - Blue) bypasses compression filters and gets a `+10%` confidence boost, while high overall or high timeframe (`4H`, `12H`, `1D`) volatility `>=80` (Red) blocks entries completely.
   - **Custom MTF Button Preset Verification:** Automatically validates your signals against the custom **Mango Bullish** (4H, 12H, 1D Golden Cross + 2D, 4D LONG) and **Mango Bearish** (4H, 12H, 1D Death Cross + 2D, 4D SHORT) dashboard presets.
   - **Gold Embed Alerts:** Standard signals display dedicated premium confluence metrics, while dashboard-native badge flips fire separate, visually stunning gold-coloured alerts with a multi-timeframe alignment grid.
 - 🧠 **Market Regime Detection**: Machine Learning (Random Forest) based system trained on historical 4H rolling data that classifies market conditions as TRENDING or RANGING and dynamically adjusts filters. The model automatically retrains itself every Saturday at 5:00 AM EST and pushes its accuracy metrics and feature importances straight to Discord!
@@ -232,6 +232,12 @@ Arcane-Portal/
 ## Changelog
 
 **Latest Update:** 2026-05-22
+
+- **Mango Premium Volatility Rules, Timeframe Upgrades, and New Assets (NEW)**:
+  - **Refined Volatility Rules**: Implemented unified volatility gates. Low volatility (`< 30` - Blue) is safe and encouraged, bypassing all compression blocks and receiving a **`+10%` confidence boost** (capped at `100%`). High volatility (`>= 80` - Red) indicates extreme trend exhaustion and **blocks trades completely** if the overall volatility or any high timeframe (`4H`, `12H`, `1D`) volatility is `>= 80`.
+  - **Base Timeframe Upgrade**: Shifted the default base timeframe for all Mango Dashboard calculations and native signals from `"4H"` to `"1D"` to capture macro structural trends more reliably.
+  - **Scraping Coverage Expansion**: Added 4 highly requested crypto assets to both TradingView and Mango Research Dashboard scraping pipelines: `TRXUSDT`, `INJUSDT`, `ONDOUSDT`, and `NEARUSDT`.
+  - **Enriched Discord Embeds & Technical Flags**: Enhanced standard TV and Mango-native alerts to display the active timeframe (`📊 Timeframe: 1D`) and format guide-matching technical flags with color-coded bullet points (🟢 green for bullish/confirming flags like `Golden Cross` or `Cheap / Discount`, 🔴 red for contrarian/bearish flags like `Death Cross` or `Expensive / Premium`).
 
 - **Mango Research Scraper & Dynamic Volatility Resolution (NEW)**:
   - **Sequential Tab Scraping**: Refactored the Playwright scraper into sequential, fully-isolated Crypto and TradFi scraping phases with 8-second tab-switching delays to prevent memory leaks and timeouts on Railway.
