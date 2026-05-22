@@ -254,7 +254,7 @@ class MangoDashboardScraper:
                         break
                         
                 # Parse CRYPTO asset row fallbacks if sniffer missed them
-                crypto_tickers = ["BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "LINK", "ARB", "AVAX", "ADA", "HYPE"]
+                crypto_tickers = ["BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "LINK", "ARB", "AVAX", "ADA", "HYPE", "TRX", "INJ", "ONDO", "NEAR"]
                 for ticker in crypto_tickers:
                     for i, line in enumerate(body_lines):
                         line_clean = line.upper().strip()
@@ -393,6 +393,7 @@ class MangoDashboardScraper:
             # Core watchlist assets we actively track and trade
             CORE_SCRAPE_ASSETS = {
                 "BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "LINK", "ARB", "AVAX", "ADA", "HYPE",
+                "TRX", "INJ", "ONDO", "NEAR",
                 "SPY", "QQQ", "GLD", "SLV", "USO", "SPX", "NDX", "GOLD", "SILVER", "OIL"
             }
 

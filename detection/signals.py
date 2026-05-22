@@ -1039,6 +1039,10 @@ class MangoSignalDetector:
         'AVAX': {'swing_rr': 1.5, 'scalp_rr': 1.5},
         'ARB':  {'swing_rr': 1.5, 'scalp_rr': 1.5},
         'HYPE': {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        'TRX':  {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        'INJ':  {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        'ONDO': {'swing_rr': 1.5, 'scalp_rr': 1.5},
+        'NEAR': {'swing_rr': 1.5, 'scalp_rr': 1.5},
         # TradFi indices — sustained trends, can hold 2R+ targets
         'NDX':    {'swing_rr': 2.0, 'scalp_rr': 1.75},
         'SPX':    {'swing_rr': 2.0, 'scalp_rr': 1.75},

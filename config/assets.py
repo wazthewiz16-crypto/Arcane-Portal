@@ -14,6 +14,10 @@ ASSETS = [
     {"symbol": "BYBIT:AVAXUSDT.P", "name": "AVAX", "type": "crypto", "precision": 3, "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "BYBIT:ADAUSDT.P", "name": "ADA", "type": "crypto", "precision": 4, "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "BYBIT:HYPEUSDT.P", "name": "HYPE", "type": "crypto", "precision": 4, "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
+    {"symbol": "BYBIT:TRXUSDT.P", "name": "TRX", "type": "crypto", "precision": 4, "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
+    {"symbol": "BYBIT:INJUSDT.P", "name": "INJ", "type": "crypto", "precision": 3, "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
+    {"symbol": "BYBIT:ONDOUSDT.P", "name": "ONDO", "type": "crypto", "precision": 4, "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
+    {"symbol": "BYBIT:NEARUSDT.P", "name": "NEAR", "type": "crypto", "precision": 3, "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     
     # TradFi / Indices (8 assets) - Monday-Friday only
     {"symbol": "OANDA:NAS100USD", "name": "NDX", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
