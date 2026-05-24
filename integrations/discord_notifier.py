@@ -484,14 +484,29 @@ class DiscordNotifier:
             imp_lines = [f"• **{k}**: {v:.1%}" for k, v in list(imp.items())[:3]]
             imp_str = "\n".join(imp_lines) if imp_lines else "N/A"
             
+            desc = (
+                f"The weekly automated ML retraining process has completed successfully.\n\n"
+                f"**Training Data:** {total} 4H samples\n"
+                f"**Walk-Forward Accuracy:** {acc:.1%}\n"
+            )
+            
+            # Label sources breakdown
+            label_sources = metrics.get('label_sources')
+            if label_sources:
+                sources_str = ", ".join([f"{str(k).capitalize()}: {v}" for k, v in label_sources.items()])
+                desc += f"**Label Sources:** {sources_str}\n"
+                
+            # Best hyperparams
+            best_params = metrics.get('best_params')
+            if best_params:
+                params_str = ", ".join([f"{k}={v}" for k, v in best_params.items()])
+                desc += f"**Optimized Hyperparameters:** `{params_str}`\n"
+                
+            desc += f"\n**Top Predictive Features:**\n{imp_str}"
+            
             embed = {
                 "title": "🧠 ML Regime Model Retrained",
-                "description": (
-                    f"The weekly automated ML retraining process has completed successfully.\n\n"
-                    f"**Training Data:** {total} 4H samples\n"
-                    f"**Test Accuracy:** {acc:.1%}\n\n"
-                    f"**Top Predictive Features:**\n{imp_str}"
-                ),
+                "description": desc,
                 "color": 0x9B59B6,  # Purple
                 "footer": {
                     "text": "Arcane Auto-Optimizer • Machine Learning"

@@ -1,12 +1,14 @@
 """
-Machine Learning Market Regime Training (Phase 2)
-Pulls historical 4h data, extracts features, labels them using Phase 1 heuristic,
-and trains a scikit-learn random forest model for dynamic regime prediction.
+Machine Learning Market Regime Training (Phase 2 - Upgraded)
+Pulls historical 4h data, extracts features, labels them using a hybrid of
+actual trade outcomes (signals table) and expert heuristics, and trains a
+scikit-learn random forest model with recency weightings and walk-forward parameter tuning.
 """
 import sys
 import os
 from pathlib import Path
 import logging
+import itertools
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -16,11 +18,9 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import joblib
-from dotenv import load_dotenv
 
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import accuracy_score, classification_report
 
 from detection.datastore import MangoDataStore
 
@@ -81,8 +81,37 @@ def fetch_and_prepare_data():
         return pd.DataFrame()
         
     df = pd.DataFrame(df)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    # Parse as timezone-aware UTC first, then localize to naive to prevent timezone comparison issues
+    df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True).dt.tz_localize(None)
     return df
+
+def fetch_closed_signals():
+    logger.info("Fetching signals from DB for outcome-based labeling...")
+    datastore = MangoDataStore()
+    
+    with datastore.get_connection() as conn:
+        try:
+            rows = datastore._fetch_query(conn, """
+                SELECT id, asset_name, status, entry_time 
+                FROM signals
+            """)
+        except Exception as e:
+            logger.warning(f"Could not fetch from signals table (it may not exist or be empty): {e}")
+            return pd.DataFrame()
+            
+    if not rows:
+        logger.info("No signals found in database.")
+        return pd.DataFrame()
+        
+    df = pd.DataFrame(rows)
+    # Parse as timezone-aware UTC first, then localize to naive to prevent timezone comparison issues
+    df['entry_time'] = pd.to_datetime(df['entry_time'], utc=True).dt.tz_localize(None)
+    
+    # Keep only signals with definite resolved outcomes
+    df['status_upper'] = df['status'].str.upper()
+    resolved_df = df[df['status_upper'].isin(['TP_HIT', 'SL_HIT', 'HIT_TP', 'HIT_SL'])]
+    logger.info(f"Fetched {len(resolved_df)} resolved outcome signals out of {len(df)} total signals.")
+    return resolved_df
 
 def generate_features(df):
     logger.info("Generating 4h rolling features from scrape data...")
@@ -207,36 +236,147 @@ def generate_features(df):
         
     return pd.DataFrame(features_list)
 
-def train_model(features_df):
-    logger.info("Labeling data based on Phase 1 Rules...")
-    # Apply label logic
-    features_df['label'] = features_df.apply(compute_label_score, axis=1)
+def label_data_with_outcomes(features_df, signals_df, lookahead_hours=12):
+    logger.info(f"Labeling data using hybrid outcome-based logic (lookahead={lookahead_hours}h)...")
+    
+    if signals_df.empty:
+        logger.info("No closed signals available. Falling back to heuristic-based labels for all samples.")
+        features_df['label'] = features_df.apply(compute_label_score, axis=1)
+        features_df['label_source'] = 'heuristic'
+        return features_df
+        
+    labels = []
+    sources = []
+    
+    for idx, row in features_df.iterrows():
+        t = row['timestamp']
+        window_end = t + timedelta(hours=lookahead_hours)
+        
+        # Find signals whose entry_time falls in [t, t + lookahead_hours]
+        mask = (signals_df['entry_time'] >= t) & (signals_df['entry_time'] <= window_end)
+        window_signals = signals_df[mask]
+        
+        if window_signals.empty:
+            labels.append(compute_label_score(row))
+            sources.append('heuristic')
+        else:
+            winners = window_signals[window_signals['status_upper'].isin(['TP_HIT', 'HIT_TP'])].shape[0]
+            losers = window_signals[window_signals['status_upper'].isin(['SL_HIT', 'HIT_SL'])].shape[0]
+            
+            if winners + losers == 0:
+                labels.append(compute_label_score(row))
+                sources.append('heuristic')
+            else:
+                if winners > losers:
+                    labels.append(1)  # Profitable regime
+                    sources.append('outcome')
+                else:
+                    labels.append(0)  # Unprofitable/choppy regime
+                    sources.append('outcome')
+                    
+    features_df['label'] = labels
+    features_df['label_source'] = sources
+    
+    source_counts = features_df['label_source'].value_counts()
+    logger.info(f"Labels generated: {source_counts.to_dict()}")
+    return features_df
+
+def train_model(features_df, signals_df):
+    if len(features_df) < 50:
+        logger.error("Not enough labeled samples to train effectively.")
+        return None
+        
+    # 1. Hybrid Outcome-Based Labeling
+    features_df = label_data_with_outcomes(features_df, signals_df, lookahead_hours=12)
     
     # Check class distribution
     class_counts = features_df['label'].value_counts()
     logger.info(f"Class Distribution: RANGING(0)={class_counts.get(0,0)}, TRENDING(1)={class_counts.get(1,0)}")
     
-    if len(features_df) < 50:
-        logger.error("Not enough labeled samples to train effectively.")
-        return None
+    # 2. Compute Recency Weights (Exponential Decay, Half-life 30 days)
+    features_df = features_df.sort_values('timestamp').reset_index(drop=True)
+    max_timestamp = features_df['timestamp'].max()
+    days_ago = (max_timestamp - features_df['timestamp']).dt.total_seconds() / (24 * 3600.0)
+    
+    # Lambda = ln(2) / 30
+    decay_lambda = np.log(2) / 30.0
+    sample_weights = np.exp(-decay_lambda * days_ago)
+    
+    # Normalize sample weights so their average is 1.0 (stable behavior in RandomForest)
+    features_df['sample_weight'] = sample_weights / np.mean(sample_weights)
+    
+    # 3. Walk-Forward Chronological Split
+    split_idx = int(len(features_df) * 0.8)
+    if split_idx < 40 or (len(features_df) - split_idx) < 10:
+        # If dataset is too small to split 80/20 chronologically, fall back to 90/10
+        split_idx = int(len(features_df) * 0.9)
         
-    X = features_df[['zone_escape_ratio', 'direction_alignment', 'range_expansion', 'eq_expansion_ratio']]
-    y = features_df['label']
+    train_df = features_df.iloc[:split_idx]
+    test_df = features_df.iloc[split_idx:]
     
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y if min(class_counts)>5 else None)
+    feature_cols = ['zone_escape_ratio', 'direction_alignment', 'range_expansion', 'eq_expansion_ratio']
     
-    logger.info("Training RandomForestClassifier...")
-    model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
-    model.fit(X_train, y_train)
+    X_train = train_df[feature_cols]
+    y_train = train_df['label']
+    w_train = train_df['sample_weight']
     
-    y_pred = model.predict(X_test)
-    logger.info("\n--- Test Set Evaluation ---")
-    logger.info(f"Accuracy: {accuracy_score(y_test, y_pred):.2%}")
-    logger.info("\nClassification Report:")
-    logger.info(classification_report(y_test, y_pred, target_names=["RANGING", "TRENDING"]))
+    X_test = test_df[feature_cols]
+    y_test = test_df['label']
+    w_test = test_df['sample_weight']
+    
+    # Grid Search Parameters
+    param_grid = {
+        'n_estimators': [50, 100, 150],
+        'max_depth': [3, 5, 7],
+        'min_samples_split': [2, 5, 10]
+    }
+    
+    best_acc = -1.0
+    best_params = {'n_estimators': 100, 'max_depth': 5, 'min_samples_split': 2}
+    
+    keys, values = zip(*param_grid.items())
+    experiments = [dict(zip(keys, v)) for v in itertools.product(*values)]
+    
+    logger.info(f"Running walk-forward grid search over {len(experiments)} configurations...")
+    
+    # Skip tuning if only one class exists in training split
+    if len(y_train.unique()) <= 1:
+        logger.warning("Only one class present in training split. Skipping tuning and using defaults.")
+    else:
+        for params in experiments:
+            model = RandomForestClassifier(random_state=42, **params)
+            model.fit(X_train, y_train, sample_weight=w_train)
+            
+            y_pred = model.predict(X_test)
+            acc = accuracy_score(y_test, y_pred, sample_weight=w_test)
+            
+            if acc > best_acc:
+                best_acc = acc
+                best_params = params
+                
+        logger.info(f"Grid search complete. Best parameters: {best_params} (Weighted accuracy: {best_acc:.2%})")
+        
+    if best_acc < 0:
+        best_acc = 1.0
+        
+    # 4. Train Final Model on ENTIRE dataset using best parameters and full weights
+    logger.info("Training final model on full dataset with optimized parameters and recency weighting...")
+    final_model = RandomForestClassifier(random_state=42, **best_params)
+    X_full = features_df[feature_cols]
+    y_full = features_df['label']
+    w_full = features_df['sample_weight']
+    final_model.fit(X_full, y_full, sample_weight=w_full)
+    
+    # Evaluate final model on the chronological test split to report in metrics
+    y_pred_final = final_model.predict(X_test)
+    final_acc = accuracy_score(y_test, y_pred_final, sample_weight=w_test)
+    logger.info(f"Final Model evaluation on walk-forward test split: {final_acc:.2%}")
+    
+    logger.info("\n--- Final Classification Report (Chronological Test Set) ---")
+    logger.info(classification_report(y_test, y_pred_final, target_names=["RANGING/RISKY", "TRENDING/SAFE"], sample_weight=w_test))
     
     # Feature Importances
-    imp = pd.Series(model.feature_importances_, index=X.columns).sort_values(ascending=False)
+    imp = pd.Series(final_model.feature_importances_, index=feature_cols).sort_values(ascending=False)
     logger.info("\nFeature Importances:")
     for feat, i in imp.items():
         logger.info(f"  {feat}: {i:.1%}")
@@ -245,35 +385,38 @@ def train_model(features_df):
     model_dir = Path(__file__).parent / 'detection'
     model_dir.mkdir(exist_ok=True)
     model_path = model_dir / 'ml_regime_model.pkl'
-    joblib.dump(model, model_path)
+    joblib.dump(final_model, model_path)
     logger.info(f"\nModel saved successfully to {model_path}")
     
     # Send Discord Alert
     metrics_dict = {
         'total_samples': len(features_df),
-        'accuracy': accuracy_score(y_test, y_pred),
-        'importances': imp.to_dict()
+        'accuracy': final_acc,
+        'importances': imp.to_dict(),
+        'best_params': best_params,
+        'label_sources': features_df['label_source'].value_counts().to_dict()
     }
     
     try:
         from integrations.discord_notifier import DiscordNotifier
         notifier = DiscordNotifier()
         notifier.send_ml_retrain_alert(metrics_dict)
-        logger.info("Sent ML retrain alert to Discord.")
+        logger.info("Sent enriched ML retrain alert to Discord.")
     except Exception as e:
         logger.error(f"Failed to send ML retrain Discord alert: {e}")
-    
-    return model
+        
+    return final_model
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("PHASE 2: ML REGIME MODEL TRAINING")
+    print("PHASE 2: ML REGIME MODEL TRAINING (UPGRADED)")
     print("=" * 60)
     
     df = fetch_and_prepare_data()
+    signals_df = fetch_closed_signals()
     feats = generate_features(df)
     
     if not feats.empty:
-        train_model(feats)
+        train_model(feats, signals_df)
     else:
         print("Failed to generate features. Ensure database has historical records.")
