@@ -464,6 +464,29 @@ class MangoSignalDetector:
                 
             signal['confidence'] = calculated_confidence
             
+            # Setup Tiering (A+, A, B) classification logic
+            confirming_count = len(confirming) if 'confirming' in locals() else 0
+            mtf_aligned = confluence.get('mtf_bullish', False) if sig_direction == 'LONG' else confluence.get('mtf_bearish', False)
+            
+            # Check ML Market Regime
+            market_regime = self.datastore.get_setting("MARKET_REGIME")
+            is_trending_regime = str(market_regime).upper() == 'TRENDING'
+            
+            if (calculated_confidence >= 85.0 and 
+                volatility < 30 and 
+                mtf_aligned and 
+                confirming_count >= 2 and 
+                is_trending_regime):
+                tier = 'A+'
+            elif (calculated_confidence >= 70.0 and 
+                  volatility < 60 and 
+                  confirming_count >= 1):
+                tier = 'A'
+            else:
+                tier = 'B'
+                
+            signal['tier'] = tier
+            
             # Attach confluence metrics to the signal dictionary for Discord embeds
             signal['mango_confluence'] = {
                 'trend_badge': '🟢 LONG' if trend_badge == 'LONG' else ('🔴 SHORT' if trend_badge == 'SHORT' else '🟣 NEUTRAL'),
@@ -475,7 +498,7 @@ class MangoSignalDetector:
                 'mtf_bullish': confluence.get('mtf_bullish', False),
                 'mtf_bearish': confluence.get('mtf_bearish', False)
             }
-            logger.info(f"✅ Mango Confluence CONFIRMED: {asset_name} {signal['signal_type']} matches/aligns with {trend_badge} dashboard badge (Vol: {volatility}).")
+            logger.info(f"✅ Mango Confluence CONFIRMED (Tier {tier}): {asset_name} {signal['signal_type']} matches/aligns with {trend_badge} dashboard badge (Vol: {volatility}).")
             return signal
             
         except Exception as e:

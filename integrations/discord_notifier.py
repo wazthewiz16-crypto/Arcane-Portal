@@ -335,7 +335,7 @@ class DiscordNotifier:
     
     def _create_embed(self, signal: Dict, message: str) -> Dict:
         """
-        Create Discord embed with color coding
+        Create Discord embed with color coding and tier indicators
         
         Args:
             signal: Signal data
@@ -344,28 +344,43 @@ class DiscordNotifier:
         Returns:
             Discord embed dictionary
         """
-        # Color coding — Mango-native signals use gold; others use green/red
-        if signal.get('is_mango_native'):
-            color = 0xFFBF00  # Gold / Amber
-        elif 'LONG' in signal['signal_type']:
-            color = 0x00FF00  # Green for longs
-        else:
-            color = 0xFF0000  # Red for shorts
+        tier = signal.get('tier', 'B')
+        is_long = 'LONG' in signal.get('signal_type', '')
         
-        # Determine title
-        if signal.get('is_mango_native'):
-            title = "🥭 Mango Dashboard Signal"
-        elif 'SWING' in signal['signal_type']:
-            title = "🎯 Swing Trade Signal"
+        # Color coding based on tier and direction
+        if tier == 'A+':
+            color = 0xF1C40F  # Gold/Amber for Tier A+ (Ultra)
+        elif tier == 'A':
+            color = 0x2ECC71 if is_long else 0xE74C3C  # Emerald Green / Alizarin Red (Premium)
         else:
-            title = "⚡ Scalp Trade Signal"
+            color = 0x3498DB if is_long else 0x95A5A6  # Muted Blue / Slate Grey (Standard)
+            
+        # Determine title
+        if tier == 'A+':
+            title = "🏆 TIER A+ ULTRA SETUP 🏆"
+        elif tier == 'A':
+            title = "🟢 TIER A HIGH CONVICTION" if is_long else "🔴 TIER A HIGH CONVICTION"
+        else:
+            title = "⚡ Standard Scalp Signal" if 'SCALP' in signal.get('signal_type', '') else "🎯 Standard Swing Signal"
+            
+        if signal.get('is_mango_native'):
+            title = f"🥭 {title} (Native Flip)"
+            
+        # Prepend Tier Header to description text for prominent visual distinction
+        tier_badges = {
+            'A+': "🏆 **TIER A+ ULTRA SETUP** 🏆\n*Perfect conditions: Low Volatility + Multi-Timeframe Alignment + Multiple Confirming Flags + Trending ML Regime*",
+            'A': "🟢 **TIER A HIGH CONVICTION SETUP**\n*Strong conditions: Healthy Volatility + Confirming Indicators*",
+            'B': "⚡ **TIER B STANDARD SETUP**\n*Standard confluence rules satisfied*"
+        }
+        
+        desc = f"{tier_badges.get(tier, '')}\n\n{message}"
         
         embed = {
             "title": title,
-            "description": message,
+            "description": desc,
             "color": color,
             "footer": {
-                "text": "Arcane Portal V2 • Mango Dynamic Strategy"
+                "text": f"Arcane Portal V2 • Tier {tier} Setup"
             },
             "timestamp": datetime.utcnow().isoformat()
         }

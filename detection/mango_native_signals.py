@@ -204,6 +204,27 @@ class MangoNativeSignalDetector:
                     logger.info(f"[MangoNative] {symbol} {direction} blocked — penalized confidence {calculated_confidence:.1f}% is below threshold {ALIGNMENT_THRESHOLD * 100}%")
                     continue
 
+                # Setup Tiering (A+, A, B) classification logic
+                confirming_count = len(confirming) if 'confirming' in locals() else 0
+                mtf_aligned = mtf_bullish if direction == 'LONG' else mtf_bearish
+                
+                # Check ML Market Regime
+                market_regime = self.datastore.get_setting("MARKET_REGIME")
+                is_trending_regime = str(market_regime).upper() == 'TRENDING'
+                
+                if (calculated_confidence >= 85.0 and 
+                    volatility < 30 and 
+                    mtf_aligned and 
+                    confirming_count >= 2 and 
+                    is_trending_regime):
+                    tier = 'A+'
+                elif (calculated_confidence >= 70.0 and 
+                      volatility < 60 and 
+                      confirming_count >= 1):
+                    tier = 'A'
+                else:
+                    tier = 'B'
+
                 # ── 6. Build signal ─────────────────────────────────────────
                 entry_price = self._get_latest_price(symbol)
                 if entry_price is None:
@@ -227,9 +248,11 @@ class MangoNativeSignalDetector:
                     override_confidence=calculated_confidence,
                     timeframe=timeframe,
                 )
+                
+                signal['tier'] = tier
 
                 signals.append(signal)
-                logger.info(f"[MangoNative] ✅ Signal generated: {symbol} {direction} "
+                logger.info(f"[MangoNative] ✅ Signal generated (Tier {tier}): {symbol} {direction} "
                             f"@ ${entry_price:,.4f}")
 
             # ── 7. Persist updated badge state ──────────────────────────────

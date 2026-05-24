@@ -105,13 +105,16 @@ class MangoDataStore:
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
                         alerted_discord BOOLEAN DEFAULT FALSE,
-                        partial_tp_hit BOOLEAN DEFAULT FALSE
+                        partial_tp_hit BOOLEAN DEFAULT FALSE,
+                        tier TEXT DEFAULT 'B'
                     )
                 """)
                 # Migrations: add new columns if they don't exist on old DBs
                 try: self._execute_query(conn, "ALTER TABLE signals ADD COLUMN IF NOT EXISTS partial_tp REAL")
                 except: pass
                 try: self._execute_query(conn, "ALTER TABLE signals ADD COLUMN IF NOT EXISTS partial_tp_hit BOOLEAN DEFAULT FALSE")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE signals ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'B'")
                 except: pass
                 
                 self._execute_query(conn, """
@@ -216,13 +219,16 @@ class MangoDataStore:
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
                         alerted_discord BOOLEAN DEFAULT 0,
-                        partial_tp_hit BOOLEAN DEFAULT 0
+                        partial_tp_hit BOOLEAN DEFAULT 0,
+                        tier TEXT DEFAULT 'B'
                     )
                 """)
                 # Migrations
                 try: self._execute_query(conn, "ALTER TABLE signals ADD COLUMN partial_tp REAL")
                 except: pass
                 try: self._execute_query(conn, "ALTER TABLE signals ADD COLUMN partial_tp_hit BOOLEAN DEFAULT 0")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE signals ADD COLUMN tier TEXT DEFAULT 'B'")
                 except: pass
                 
                 self._execute_query(conn, """
@@ -458,8 +464,8 @@ class MangoDataStore:
                     entry_price, take_profit, partial_tp, stop_loss, rr_ratio,
                     entry_zone_low, entry_zone_high,
                     htf, ltf, status, entry_time,
-                    created_at, updated_at, alerted_discord
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, updated_at, alerted_discord, tier
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 signal_data['asset_name'],
                 signal_data['asset_type'],
@@ -478,7 +484,8 @@ class MangoDataStore:
                 signal_data['entry_time'],
                 now,
                 now,
-                signal_data.get('alerted_discord', False)
+                signal_data.get('alerted_discord', False),
+                signal_data.get('tier', 'B')
             ))
             
             cursor = self._execute_query(conn, "SELECT last_insert_rowid()")
