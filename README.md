@@ -7,12 +7,20 @@
 ## Features
 
 - 🔮 **Automated Signal Detection**: Swing and scalp signals using precise two-timeframe alignment
-- 🥭 **Mango Research Premium Dashboard Integration**: Natively scrapes `app.mangoresearch.co` in the background (with 2-hour rate-limiting to optimize compute costs) using Playwright. Captures high-fidelity individual asset trend badges, asset volatility, global market trend, and overall market volatility:
+- 🥭 **Mango Research Premium Dashboard Integration**: Natively scrapes `app.mangoresearch.co` in the background (with 1-hour rate-limiting to capture badge flips twice as fast) using Playwright. Captures high-fidelity individual asset trend badges, asset volatility, global market trend, and overall market volatility:
   - **Global Trend Opposite Blocking:** Blocks LONG signals if overall market trend is SHORT, and SHORT signals if overall market trend is LONG.
   - **Refined Volatility Quality Gates:** Low volatility (`<30` - Blue) bypasses compression filters and gets a `+10%` confidence boost, while high overall or high timeframe (`4H`, `12H`, `1D`) volatility `>=80` (Red) blocks entries completely.
   - **Custom MTF Button Preset Verification:** Automatically validates your signals against the custom **Mango Bullish** (4H, 12H, 1D Golden Cross + 2D, 4D LONG) and **Mango Bearish** (4H, 12H, 1D Death Cross + 2D, 4D SHORT) dashboard presets.
   - **Gold Embed Alerts:** Standard signals display dedicated premium confluence metrics, while dashboard-native badge flips fire separate, visually stunning gold-coloured alerts with a multi-timeframe alignment grid.
-- 🧠 **Market Regime Detection**: Machine Learning (Random Forest) based system trained on historical 4H rolling data that classifies market conditions as TRENDING or RANGING and dynamically adjusts filters. The model automatically retrains itself every Saturday at 5:00 AM EST and pushes its accuracy metrics and feature importances straight to Discord!
+- 🧠 **Market Regime Detection (ML Upgraded)**: Self-correcting Machine Learning (Random Forest) based system trained on historical 4H rolling data that classifies market conditions as TRENDING or RANGING and dynamically adjusts filters. The model automatically retrains itself every Saturday at 5:00 AM EST and pushes its metrics straight to Discord, featuring:
+  - **Outcome-Based Labeling:** Dynamically maps time windows to actual trade outcomes (winners vs. losers from `signals` table) with expert heuristic fallbacks.
+  - **Recency-Weighted Training:** Applies exponential decay weights with a **30-day half-life** to favor recent market cycles.
+  - **Walk-Forward Chronological Parameter Tuning:** Conducts grid search over 27 parameters on time-series splits to completely prevent future data leakage (lookahead bias).
+- 🏆 **Dynamic Setup Tiering (Isolating A+ Trades)**: Signals are classified into distinct quality tiers during detection and persistently saved in the database:
+  - **Tier A+ (Ultra Setup):** Requires $\ge 85\%$ confidence, low volatility compression ($<30$ - blue), multi-timeframe alignment, $\ge 2$ confirming technical flags, and a predicted `TRENDING` ML market regime.
+  - **Tier A (High Conviction):** Requires $\ge 70\%$ confidence, healthy volatility ($<60$), and $\ge 1$ confirming flag.
+  - **Tier B (Standard Setup):** Standard confluence signals.
+  - **Discord Visualization:** Styled with custom border colors (Vibrant Gold `0xF1C40F` for Tier A+) and prepended with prominent setup headers (e.g. `🏆 TIER A+ ULTRA SETUP`) containing detailed italicized explanations. Direct support for strict trade-frequency disciplines!
 - 🤖 **Auto-Optimizer**: Runs continually to dynamically adjust confidence thresholds up or down based on recent win rates, frequency, and detected market regime, preventing dry spells and system death-spirals.
 - 📡 **Trade Radar**: Automatically pushes the top 5 "Prime" active trades (ideal pullbacks and near-entry trades) to Discord 4 times a day, allowing you to catch high-probability setups without watching charts.
 - 📊 **Real-time Dashboard**: Beautiful Streamlit interface with live updates, active signals, historical performance, dynamic levels (15m through 4d), and system health metrics.
@@ -231,9 +239,17 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-05-22
+**Latest Update:** 2026-05-24
 
-- **Mango Premium Volatility Rules, Timeframe Upgrades, and New Assets (NEW)**:
+- **Upgraded ML Retraining Pipeline & Dynamic Setup Tiering (NEW)**:
+  - **Dynamic Setup Tiering:** Signals are classified into distinct quality tiers: **Tier A+ (Ultra Setup)**, **Tier A (High Conviction)**, and **Tier B (Standard Setup)**. Dynamic border color mapping (Vibrant Gold for Tier A+) and prominent embed banners dynamically isolate "cream of the crop" setups to prevent overtrading.
+  - **Outcome-Based Labeling:** Shifted retraining labels from heuristic formulas to actual trade outcomes. Links historical training windows directly to realized TP/SL resolutions with expert heuristic fallbacks.
+  - **Recency-Weighted Training:** Applies exponential decay weights with a **30-day half-life** to focus learning on the current active market regimes.
+  - **Walk-Forward Chronological Parameter Tuning:** Added chronological time-series splits and walk-forward parameter grid searches over 27 parameters, resolving overfitting and lookahead bias.
+  - **Database Persistence & Migrations:** Upgraded PostgreSQL and SQLite datastores to dynamically migrate signal schemas and persistently store signal tiers.
+  - **Enriched Retrain Notification:** Displays walk-forward validation accuracy, parameter selections, and label source counts in Discord retrain alerts.
+
+- **Mango Premium Volatility Rules, Timeframe Upgrades, and New Assets**:
   - **Refined Volatility Rules**: Implemented unified volatility gates. Low volatility (`< 30` - Blue) is safe and encouraged, bypassing all compression blocks and receiving a **`+10%` confidence boost** (capped at `100%`). High volatility (`>= 80` - Red) indicates extreme trend exhaustion and **blocks trades completely** if the overall volatility or any high timeframe (`4H`, `12H`, `1D`) volatility is `>= 80`.
   - **Base Timeframe Upgrade**: Shifted the default base timeframe for all Mango Dashboard calculations and native signals from `"4H"` to `"1D"` to capture macro structural trends more reliably.
   - **Scraping Coverage Expansion**: Added 4 highly requested crypto assets to both TradingView and Mango Research Dashboard scraping pipelines: `TRXUSDT`, `INJUSDT`, `ONDOUSDT`, and `NEARUSDT`.
@@ -248,7 +264,7 @@ Arcane-Portal/
   - Added a dual-tier volatility gate for Swing trades evaluating both overall asset and timeframe-specific (4H, 12H, 1D) volatilities:
     - **Extreme Volatility (> 90)**: Blocks Swing trade entry completely to avoid entering exhausted trends.
     - **High Volatility (85 to 90)**: Deducts 20.0% from signal confidence and appends a warning badge (`⚠️ High Volatility (Exhaustion Risk)`).
-- **Mango Research Premium Dashboard Integration**: Natively scrapes `app.mangoresearch.co` in the background (with 2-hour rate-limiting to optimize compute costs) using Playwright with robust network sniffing and DOM-parsing fallbacks.
+- **Mango Research Premium Dashboard Integration**: Natively scrapes `app.mangoresearch.co` in the background (with 1-hour rate-limiting to capture badge flips twice as fast) using Playwright with robust network sniffing and DOM-parsing fallbacks.
 - **Global Market Trend Opposite Blocking**: Blocks standard TradingView signals from firing if they fight the overall global market trend (e.g., blocking LONG signals when the market is in a global SHORT regime).
 - **Scalp Volatility Filters**: Enforces individual asset volatility gates for scalp signals, filtering out trades in extreme exhaustion zones (`>85`) or dormant compression zones (`<25`).
 - **Custom MTF Button Preset Verification**: Validates signals against custom **Mango Bullish** (4H, 12H, 1D Golden Cross + 2D, 4D LONG) and **Mango Bearish** (4H, 12H, 1D Death Cross + 2D, 4D SHORT) dashboard presets. Standard TradingView Discord embeds now print these preset alignment statuses under a premium "Mango Premium Confluence" panel.
