@@ -106,9 +106,21 @@ def run_trade_radar():
         else:
             status = f"Early Profit (`+{pnl:.2f}%`)"
             
+        tier = sig.get('tier', 'N/A')
+        if not tier:
+            tier = 'N/A'
+            
+        tier_badges = {
+            'A+': '🏆 **A+**',
+            'A': '🟢 **A**',
+            'B': '⚡ **B**',
+            'N/A': '❔ **N/A**'
+        }
+        tier_display = tier_badges.get(tier, f'**{tier}**')
+            
         msg += f"**{sig['asset_name']}** {trade_type} ({sig['htf']}→{sig['ltf']})\n"
         msg += f"↳ Action: {direction} @ {sig['entry_price']}\n"
-        msg += f"↳ Status: **{status}** | Conf: `{t['conf']:.1f}%`\n\n"
+        msg += f"↳ Status: **{status}** | Conf: `{t['conf']:.1f}%` | Tier: {tier_display}\n\n"
         
     msg += "*Not financial advice. Manage your risk.*\n"
     
