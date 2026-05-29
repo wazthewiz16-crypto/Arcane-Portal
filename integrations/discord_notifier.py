@@ -432,6 +432,42 @@ class DiscordNotifier:
             logger.error(f"Failed to send message: {e}")
             return False
 
+    def send_message_with_file(self, message: str, filepath: str) -> bool:
+        """
+        Send a general message with a file attachment to Discord
+        
+        Args:
+            message: Formatted text message
+            filepath: Absolute path to the file to attach
+            
+        Returns:
+            True if sent successfully
+        """
+        if not self.webhook_url:
+            return False
+            
+        if not filepath or not os.path.exists(filepath):
+            logger.warning(f"File path {filepath} does not exist. Falling back to text-only send_message.")
+            return self.send_message(message)
+            
+        try:
+            import json
+            filename = os.path.basename(filepath)
+            with open(filepath, "rb") as fh:
+                payload = {"content": message}
+                response = requests.post(
+                    self.webhook_url,
+                    data={"payload_json": json.dumps(payload)},
+                    files={"file": (filename, fh)},
+                    timeout=30
+                )
+                
+            return response.status_code in [200, 204]
+            
+        except Exception as e:
+            logger.error(f"Failed to send message with file: {e}")
+            return False
+
     def send_test_alert(self) -> bool:
         """Send a test alert to verify webhook is working"""
         test_signal = {

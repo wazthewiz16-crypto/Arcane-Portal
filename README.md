@@ -184,7 +184,11 @@ A self-healing loop that runs periodically to evaluate the Win Rate, Signal Freq
 **Recommended Schedule:** Run 3x daily (e.g. 3am, 9:30am, 5pm EST) via Railway Cron or external scheduler to capture post-session resolutions.
 
 ### Trade Radar (`trade_radar.py`)
-A secondary digest system designed for part-time monitoring. Evaluates all open positions and filters for "Prime" setups (trades currently in a slight pullback or resting exactly at entry, avoiding trades that are too close to stop-loss or already heavily in profit). It ranks them by a blend of confidence and PnL%, then automatically pushes a summary of the top 5 trades to Discord at **8 AM, 12 PM, 4 PM, and 8 PM EST**. No separate cron required; it's integrated natively into `run_signals.py`.
+A secondary digest system designed for part-time monitoring. Evaluates all active signals and filters for "Prime" setups (trades currently in a slight pullback or resting exactly at entry, avoiding trades that are too close to stop-loss or already heavily in profit). It ranks them by a blend of confidence and pullback depth. It automatically pushes a summary of the top 5 trades to Discord at **8 AM, 12 PM, 4 PM, and 8 PM EST** (natively integrated into `run_signals.py`).
+
+**Upgrades V3:**
+- 📊 **Visual Chart Attachments:** Automatically pulls the latest saved chart screenshot from the database (`screenshots` table) for the #1 ranked prime trade setup and attaches it directly to the Discord alert digest (falling back cleanly to text-only if missing).
+- 📐 **Dynamic R-Multiple & "Enhanced R:R" Tracker:** Swaps raw percentage distance (e.g., `-1.24%`) for R-multiple distance (e.g., `-0.4R` pullback) and calculates the mathematically improved Risk-to-Reward ratio (e.g., `Original R:R: 2.0:1 ➔ Enhanced: 2.4:1`) resulting from entering on a pullback.
 
 ### Continuous Monitoring (`monitor_signals.py`)
 The primary execution script.
@@ -271,7 +275,7 @@ Arcane-Portal/
 - **Mango-Native Signal Detection (NEW)**: Created a separate, premium gold-colored alert class (`detection/mango_native_signals.py`) triggered by dashboard asset badge flips (e.g. `NEUTRAL ➔ LONG`). Signals generate when ≥60% of timeframes align with the new badge trend.
 - **Sleep Schedule Quiet Hours (NEW)**: Restricts all Mango dashboard scraping and native signal generation between 11:00 PM and 5:00 AM EST to align with sleep schedules, conserving resources and preventing late-night noise.
 - **Database Session State Capture (NEW)**: Added an interactive session capture helper (`interactive_login_mango.py`) with automatic Windows terminal console UTF-8 wrappers. The script securely uploads authenticated cookie/storage states directly to PostgreSQL (`MANGO_DASHBOARD_STATE`) with a local backup (`mango_state.json`) for seamless background running.
-- **Automated Trade Radar (NEW)**: Added a new `trade_radar.py` script that evaluates all open positions, identifies "Prime" setups (ideal pullbacks and near-entry opportunities), ranks them by confidence, and sends a top-5 digest to Discord. This runs automatically 4 times a day (8 AM, 12 PM, 4 PM, 8 PM EST) natively integrated into the `run_signals.py` loop.
+- **Upgraded Arcane Trade Radar (Prime Entries)**: Upgraded `trade_radar.py` with premium visual and quantitative features. Swapped raw percentage distance (e.g. `-1.24%`) for precise **R-Multiple Drift** (e.g. `-0.4R` pullback). Introduced the **Enhanced R:R Tracker**, which mathematically calculates and displays the improved Risk-to-Reward ratio (e.g. `Original R:R: 2.0:1 ➔ Enhanced: 2.4:1`) gained from entering on a pullback. Added **Visual Chart Attachments** that automatically extract the latest saved chart screenshot from the database (`screenshots` table) for the #1 ranked setup and attach it directly to the Discord alert digest (falling back cleanly to text-only if unavailable).
 - **UI Cleanup for Screenshots**: Added aggressive CSS rules in the TradingView scraper to automatically hide pop-ups, promotional banners (like Easter sales), and floating toolbars before taking screenshots. This ensures Discord charts remain perfectly clean and unobstructed.
 - **LTF Screenshot Fallback (FIX)**: `4d → 1d` swing signals were missing the lower timeframe chart in Discord because the `1d` timeframe is only scraped at specific times. The system now falls back to the most recent `1d` screenshot stored in the database when the LTF chart isn't part of the current scrape batch — ensuring both charts always appear in Discord alerts.
 - **1D Scrape Frequency Increased**: The daily (`1d`) timeframe is now scraped **3 times per day** (at 00:00, 08:00, and 16:00 UTC) instead of twice, so the daily chart data and screenshots stay fresh throughout the trading day.
@@ -297,7 +301,7 @@ Arcane-Portal/
 - **Core Direction Detection Fix**: Rewrote `_get_htf_direction` to use price position relative to the actual ribbon bands instead of comparing to entry zones.
 - **Swing/Scalp LTF Ribbon Confirmation**: The LTF ribbon must explicitly confirm direction before signals fire. NEUTRAL states no longer pass through.
 - **EST Day-Bookend Full Scans**: The scheduler performs full scrapes at market open (5AM EST) and close (10:30PM EST).
-- **Advanced Auto-Optimizer**: Dynamic SL widening, toxic asset blacklisting, and "Too Perfect" confidence caps.
+- **Advanced Auto-Optimizer (Phase 2 Upgrades)**: Fully implemented the **Drawdown Circuit Breaker** (automatically halts Tier A/B trading for 24 hours if 24h PnL falls below $-3.0R$, allowing only Tier A+ setups to pass), **Dynamic Altcoin Correlation Cap** (adjusts active position limits between 1, 2, and 3 based on live BTC BBWP volatility to expand during alt season decoupling and protect during market-wide correlation flushes), and **Self-Healing Parameter Backtester** (regularly backtests the past 14 days of closed trade data to mathematically find and apply optimal Swing/Scalp confidence thresholds that maximize net R-multiples).
 - **Railway Cost Optimization**: ~45% reduction in hourly browser load via smart scheduling.
 
 **Built with:** Python • Streamlit • Playwright • PostgreSQL • Discord • Numpy/Pandas

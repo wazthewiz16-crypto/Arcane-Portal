@@ -35,22 +35,52 @@ def run_trade_radar():
         asset_key = sig['asset_name'].strip().upper()
         cur_price = current_prices.get(asset_key)
         
-        if not cur_price or not sig.get('entry_price'):
+        if not cur_price or not sig.get('entry_price') or not sig.get('stop_loss') or not sig.get('take_profit'):
             continue
             
         try:
             entry_p = float(sig['entry_price'])
+            stop_l = float(sig['stop_loss'])
+            take_p = float(sig['take_profit'])
+            
+            if entry_p <= 0 or cur_price <= 0:
+                continue
+                
+            # Evaluate distance to stop loss (as a %)
             if 'LONG' in sig['signal_type']:
                 pnl_pct = (cur_price - entry_p) / entry_p * 100
-                distance_to_sl = (cur_price - float(sig['stop_loss'])) / cur_price * 100
+                distance_to_sl = (cur_price - stop_l) / cur_price * 100
+                
+                # Enhanced R:R calculation
+                risk_denom = cur_price - stop_l
+                reward_num = take_p - cur_price
             else:
                 pnl_pct = (entry_p - cur_price) / entry_p * 100
-                distance_to_sl = (float(sig['stop_loss']) - cur_price) / cur_price * 100
+                distance_to_sl = (stop_l - cur_price) / cur_price * 100
                 
+                # Enhanced R:R calculation
+                risk_denom = stop_l - cur_price
+                reward_num = cur_price - take_p
+                
+            # Original R:R
+            original_risk = abs(entry_p - stop_l)
+            original_reward = abs(take_p - entry_p)
+            original_rr = original_reward / original_risk if original_risk > 0 else float(sig.get('rr_ratio', 0.0))
+            
+            # Enhanced R:R
+            enhanced_rr = reward_num / risk_denom if risk_denom > 0 else 0.0
+            
+            # R-Multiple Drift (Swap raw percentage distance for R-multiple distance)
+            risk_pct = original_risk / entry_p
+            r_drift = pnl_pct / (risk_pct * 100) if risk_pct > 0 else 0.0
+            
             conf = float(sig.get('confidence', 0))
             evaluated.append({
                 'signal': sig,
                 'pnl_pct': pnl_pct,
+                'r_drift': r_drift,
+                'original_rr': original_rr,
+                'enhanced_rr': enhanced_rr,
                 'conf': conf,
                 'distance_to_sl': distance_to_sl
             })
@@ -95,16 +125,16 @@ def run_trade_radar():
         sig = t['signal']
         direction = "🟢 LONG" if "LONG" in sig['signal_type'] else "🔴 SHORT"
         trade_type = "Swing" if "SWING" in sig['signal_type'] else "Scalp"
-        pnl = t['pnl_pct']
+        r_drift = t['r_drift']
         
-        # Format PnL status
-        if pnl < -0.5:
-            status = f"Ideal Pullback (`{pnl:.2f}%`)"
-        elif -0.5 <= pnl <= +0.5:
-            sign = "+" if pnl > 0 else ""
-            status = f"At exact entry (`{sign}{pnl:.2f}%`)"
+        # Format PnL status using R-multiple
+        if r_drift < -0.15:
+            status = f"Ideal Pullback (`{r_drift:.2f}R`)"
+        elif -0.15 <= r_drift <= +0.15:
+            sign = "+" if r_drift > 0 else ""
+            status = f"At exact entry (`{sign}{r_drift:.2f}R`)"
         else:
-            status = f"Early Profit (`+{pnl:.2f}%`)"
+            status = f"Early Profit (`+{r_drift:.2f}R`)"
             
         tier = sig.get('tier', 'N/A')
         if not tier:
@@ -120,13 +150,59 @@ def run_trade_radar():
             
         msg += f"**{sig['asset_name']}** {trade_type} ({sig['htf']}→{sig['ltf']})\n"
         msg += f"↳ Action: {direction} @ {sig['entry_price']}\n"
-        msg += f"↳ Status: **{status}** | Conf: `{t['conf']:.1f}%` | Tier: {tier_display}\n\n"
+        msg += f"↳ Status: **{status}** | Conf: `{t['conf']:.1f}%` | Tier: {tier_display}\n"
+        msg += f"↳ R:R Ratio: `{t['original_rr']:.1f}:1` ➔ **Enhanced R:R: `{t['enhanced_rr']:.1f}:1`**\n\n"
         
     msg += "*Not financial advice. Manage your risk.*\n"
     
-    # Send
-    print(f"Sending {len(top_trades)} prime trades to Radar Discord channel...")
-    notifier.send_message(msg)
+    # 1. Visual Chart Attachments: Automatically fetch the latest saved chart screenshot
+    # from the database for the #1 ranked prime trade setup and attach it to the Discord alert
+    screenshot_file = None
+    if top_trades:
+        top_sig = top_trades[0]['signal']
+        asset_name = top_sig['asset_name']
+        ltf = top_sig.get('ltf')
+        htf = top_sig.get('htf')
+        
+        screenshot_data = None
+        # Try LTF first
+        if ltf:
+            screenshot_data = datastore.get_screenshot(asset_name, ltf)
+            if not screenshot_data and asset_name != asset_name.strip().upper():
+                screenshot_data = datastore.get_screenshot(asset_name.strip().upper(), ltf)
+                
+        # Fallback to HTF
+        if not screenshot_data and htf:
+            screenshot_data = datastore.get_screenshot(asset_name, htf)
+            if not screenshot_data and asset_name != asset_name.strip().upper():
+                screenshot_data = datastore.get_screenshot(asset_name.strip().upper(), htf)
+                
+        if screenshot_data and screenshot_data.get('image_data'):
+            try:
+                temp_filename = f"temp_radar_{asset_name}_{ltf or htf}.png".replace("/", "_")
+                temp_path = os.path.join(str(Path(__file__).parent), temp_filename)
+                with open(temp_path, "wb") as f:
+                    f.write(screenshot_data['image_data'])
+                screenshot_file = temp_path
+                print(f"Retrieved and saved screenshot for {asset_name} ({ltf or htf}) to {temp_path}")
+            except Exception as e:
+                print(f"Error saving temporary screenshot file: {e}")
+
+    try:
+        # Send
+        print(f"Sending {len(top_trades)} prime trades to Radar Discord channel...")
+        if screenshot_file:
+            notifier.send_message_with_file(msg, screenshot_file)
+        else:
+            notifier.send_message(msg)
+    finally:
+        # Clean up temporary screenshot file
+        if screenshot_file and os.path.exists(screenshot_file):
+            try:
+                os.remove(screenshot_file)
+                print(f"Cleaned up temporary screenshot file: {screenshot_file}")
+            except Exception as e:
+                print(f"Error removing temporary file {screenshot_file}: {e}")
     
 if __name__ == "__main__":
     run_trade_radar()
