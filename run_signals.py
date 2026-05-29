@@ -47,7 +47,7 @@ async def run_scraper_and_detect():
     detector = MangoSignalDetector(datastore)
     notifier = DiscordNotifier()
     
-    # --- Mango Research Premium Dashboard Scraper (2-hour rate-limit cache update) ---
+    # --- Mango Research Premium Dashboard Scraper (1-hour rate-limit cache update) ---
     # Quiet hours: 11 PM – 5 AM EST — no scraping or signals during sleep hours
     _mango_quiet = 23 <= now.hour or now.hour < 5
     try:
@@ -66,14 +66,14 @@ async def run_scraper_and_detect():
                 try:
                     last_update = datetime.fromisoformat(last_update_str)
                     elapsed_hours = (datetime.utcnow() - last_update).total_seconds() / 3600.0
-                    if elapsed_hours < 2.0:
-                        print(f"[MANGO DASHBOARD] Using cached data (updated {elapsed_hours:.2f} hours ago — rate limit 2 hours).")
+                    if elapsed_hours < 1.0:
+                        print(f"[MANGO DASHBOARD] Using cached data (updated {elapsed_hours:.2f} hours ago — rate limit 1 hour).")
                         should_scrape = False
                 except Exception as e:
                     print(f"[MANGO DASHBOARD] Error parsing last update timestamp: {e}")
                     
             if should_scrape:
-                print("[MANGO DASHBOARD] Updating premium dashboard cache (2-hour scheduler window triggered)...")
+                print("[MANGO DASHBOARD] Updating premium dashboard cache (1-hour scheduler window triggered)...")
                 success = await mango_scraper.scrape_dashboard()
                 if success:
                     datastore.set_setting("MANGO_DASHBOARD_LAST_UPDATE", datetime.utcnow().isoformat())

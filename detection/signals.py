@@ -541,7 +541,6 @@ class MangoSignalDetector:
         combinations = [
             ('4d', '1d'),   # Weekly/Daily swing
             ('1d', '4h'),   # Daily/4H swing — primary swing combo
-            ('4h', '1h'),   # 4H/1H swing — re-added (important signal source)
         ]
         
         for htf_tf, ltf_tf in combinations:
