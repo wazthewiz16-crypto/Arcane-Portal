@@ -192,7 +192,21 @@ class MangoNativeSignalDetector:
                 BEARISH_FLAGS = ["Death Cross", "Bearish Ichimoku", "RSI Bearish Divergence", "Expensive / Premium"]
                 
                 calculated_confidence = tf_pct * 100
-                active_flags = list(flags)
+                # Pull flags from confluence. Try specific timeframe flags, and merge with base (1D) flags
+                flags_set = set(flags)
+                tf_flags = asset_data.get("timeframe_flags", {})
+                tf_upper = str(timeframe).upper()
+                
+                if tf_upper in tf_flags:
+                    flags_set.update(tf_flags[tf_upper])
+                    
+                # Also check alignment timeframes (e.g. 4H, 12H) and pull flags from them
+                for tf_align in timeframes.keys():
+                    tf_align_upper = str(tf_align).upper()
+                    if tf_align_upper in tf_flags:
+                        flags_set.update(tf_flags[tf_align_upper])
+                        
+                active_flags = list(flags_set)
                 
                 if direction == "LONG":
                     blocking_flags = [f for f in active_flags if f in ["Death Cross", "Bearish Ichimoku"]]

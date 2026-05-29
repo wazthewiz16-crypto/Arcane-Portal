@@ -188,10 +188,36 @@ class MangoDashboardScraper:
                                                 except (ValueError, TypeError):
                                                     vol_int = 50
 
+                                                api_flags = []
+                                                gc = obj.get("golden_cross")
+                                                if gc == 1: api_flags.append("Golden Cross")
+                                                elif gc == 2: api_flags.append("Death Cross")
+                                                
+                                                ichi = obj.get("ichimoku")
+                                                if ichi == 1: api_flags.append("Bullish Ichimoku")
+                                                elif ichi == 2: api_flags.append("Bearish Ichimoku")
+                                                
+                                                rsi = obj.get("rsi_divergence")
+                                                if rsi == 1: api_flags.append("RSI Bullish Divergence")
+                                                elif rsi == 2: api_flags.append("RSI Bearish Divergence")
+                                                
+                                                pd = obj.get("premium_discount")
+                                                if pd == 1: api_flags.append("Cheap / Discount")
+                                                elif pd == 2: api_flags.append("Expensive / Premium")
+                                                
+                                                if obj.get("most_viewed") is True or obj.get("is_hotlist") is True:
+                                                    api_flags.append("Mango Hotlist")
+                                                    
+                                                raw_flags = (obj.get('flags') or obj.get('indicators') or obj.get('signals') or [])
+                                                clean_flags = self.standardize_flags(raw_flags)
+                                                for af in api_flags:
+                                                    if af not in clean_flags:
+                                                        clean_flags.append(af)
+                                                
                                                 intercepted_data[clean_sym] = {
                                                     'trend': 'LONG' if 'LONG' in trend or 'BULL' in trend else ('SHORT' if 'SHORT' in trend or 'BEAR' in trend else 'NEUTRAL'),
                                                     'volatility': vol_int,
-                                                    'flags': self.standardize_flags(obj.get('flags') or obj.get('indicators') or [])
+                                                    'flags': clean_flags
                                                 }
                                                 found_valid = True
                                     for v in obj.values():
@@ -621,10 +647,32 @@ class MangoDashboardScraper:
                                         mapped = ('LONG'    if 'LONG'  in t_str or 'BULL' in t_str
                                                   else 'SHORT'   if 'SHORT' in t_str or 'BEAR' in t_str
                                                   else 'NEUTRAL')
-                                    # Capture indicator flags for this timeframe
-                                    raw_flags = (obj.get('flags') or obj.get('indicators')
-                                                 or obj.get('signals') or [])
+                                    # Try to extract keys directly if flags are represented as db fields
+                                    api_flags = []
+                                    gc = obj.get("golden_cross")
+                                    if gc == 1: api_flags.append("Golden Cross")
+                                    elif gc == 2: api_flags.append("Death Cross")
+                                    
+                                    ichi = obj.get("ichimoku")
+                                    if ichi == 1: api_flags.append("Bullish Ichimoku")
+                                    elif ichi == 2: api_flags.append("Bearish Ichimoku")
+                                    
+                                    rsi = obj.get("rsi_divergence")
+                                    if rsi == 1: api_flags.append("RSI Bullish Divergence")
+                                    elif rsi == 2: api_flags.append("RSI Bearish Divergence")
+                                    
+                                    pd = obj.get("premium_discount")
+                                    if pd == 1: api_flags.append("Cheap / Discount")
+                                    elif pd == 2: api_flags.append("Expensive / Premium")
+                                    
+                                    if obj.get("most_viewed") is True or obj.get("is_hotlist") is True:
+                                        api_flags.append("Mango Hotlist")
+                                        
+                                    raw_flags = (obj.get('flags') or obj.get('indicators') or obj.get('signals') or [])
                                     clean_flags = self.standardize_flags(raw_flags)
+                                    for af in api_flags:
+                                        if af not in clean_flags:
+                                            clean_flags.append(af)
 
                                     # Capture bbwp volatility for this timeframe
                                     bbwp_val = obj.get('bbwp') or obj.get('volatility') or obj.get('vol')

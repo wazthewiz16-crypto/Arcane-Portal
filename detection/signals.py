@@ -427,7 +427,18 @@ class MangoSignalDetector:
                 logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - high timeframe volatility detected in {', '.join(high_tf_vols)} (exhaustion zone).")
                 return None
 
-            flags = list(confluence.get('flags', []))
+            # Pull flags from confluence. Try specific LTF and HTF timeframe flags, and merge with base (1D) flags
+            flags_set = set(confluence.get('flags', []))
+            tf_flags = confluence.get('timeframe_flags', {})
+            ltf_upper = str(signal.get('ltf', '')).upper()
+            htf_upper = str(signal.get('htf', '')).upper()
+            
+            if ltf_upper in tf_flags:
+                flags_set.update(tf_flags[ltf_upper])
+            if htf_upper in tf_flags:
+                flags_set.update(tf_flags[htf_upper])
+                
+            flags = list(flags_set)
             
             # Technical Flags Quality Rules
             BULLISH_FLAGS = ["Golden Cross", "Bullish Ichimoku", "RSI Bullish Divergence", "Cheap / Discount"]
