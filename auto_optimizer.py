@@ -1,14 +1,17 @@
 """
-Automated Signal Optimizer (Iterative Loop)
+Automated Signal Optimizer (Upgraded Phase 2)
 
 Runs analysis on recent signals and automatically adjusts confidence thresholds
 based on performance metrics (Win Rate, Frequency) — SEPARATELY for scalps and swings.
+Now features the Drawdown Circuit Breaker, Dynamic Altcoin Correlation Cap (BTC BBWP matching),
+and a Self-Healing Parameter Backtesting engine.
 """
 import sys
 import os
 import logging
+import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Setup paths
 sys.path.insert(0, str(Path(__file__).parent))
@@ -49,7 +52,6 @@ class AutoOptimizer:
         analysis = self.analyzer.analyze_recent_signals(hours)
         if 'error' in analysis:
             logger.warning(f"Analysis failed: {analysis['error']}")
-            # Still attempt the frequency safety valve even without rich data
             self._apply_frequency_safety_valve(hours)
             return
 
@@ -84,27 +86,37 @@ class AutoOptimizer:
 
         updates = {}
 
-        # 3. Per-type win rate analysis (most important improvement)
-        #    Adjust swing and scalp INDEPENDENTLY based on their own performance.
+        # 2b. Run Self-Healing Backtest to optimize thresholds (Upgrade 4)
+        opt_swing, opt_scalp = self._run_self_healing_backtest(lookback_days=14)
+
+        # 3. Per-type win rate analysis (Dynamic Self-Healing vs Heuristics)
         by_type = breakdowns.get('by_signal_type', {})
         swing_stats = self._merge_type_stats(by_type, 'SWING')
         scalp_stats = self._merge_type_stats(by_type, 'SCALP')
 
-        swing_update = self._decide_threshold(
-            label='SWING', current=current_swing,
-            stats=swing_stats,
-            min_th=MIN_SWING, max_th=MAX_SWING
-        )
-        scalp_update = self._decide_threshold(
-            label='SCALP', current=current_scalp,
-            stats=scalp_stats,
-            min_th=MIN_SCALP, max_th=MAX_SCALP
-        )
+        if opt_swing is not None:
+            logger.info(f"Self-Healing: using optimized Swing threshold {opt_swing} (R-maximized)")
+            updates['MIN_CONFIDENCE_SWING'] = float(opt_swing)
+        else:
+            swing_update = self._decide_threshold(
+                label='SWING', current=current_swing,
+                stats=swing_stats,
+                min_th=MIN_SWING, max_th=MAX_SWING
+            )
+            if swing_update is not None:
+                updates['MIN_CONFIDENCE_SWING'] = swing_update
 
-        if swing_update is not None:
-            updates['MIN_CONFIDENCE_SWING'] = swing_update
-        if scalp_update is not None:
-            updates['MIN_CONFIDENCE_SCALP'] = scalp_update
+        if opt_scalp is not None:
+            logger.info(f"Self-Healing: using optimized Scalp threshold {opt_scalp} (R-maximized)")
+            updates['MIN_CONFIDENCE_SCALP'] = float(opt_scalp)
+        else:
+            scalp_update = self._decide_threshold(
+                label='SCALP', current=current_scalp,
+                stats=scalp_stats,
+                min_th=MIN_SCALP, max_th=MAX_SCALP
+            )
+            if scalp_update is not None:
+                updates['MIN_CONFIDENCE_SCALP'] = scalp_update
             
         # 3b. Advanced Optimization: Asset Blacklisting
         toxic_assets = []
@@ -156,20 +168,80 @@ class AutoOptimizer:
         updates['MARKET_REGIME'] = regime
 
         if regime == 'TRENDING':
-            # On trending days: widen breakout capture and lower thresholds slightly
             updates['BREAKOUT_CAPTURE_PCT'] = 0.01  # 1% beyond zone (was 0.3%)
-            # Lower thresholds by 3 to capture more setups (trending = higher conviction)
             if 'MIN_CONFIDENCE_SWING' not in updates:
                 updates['MIN_CONFIDENCE_SWING'] = max(MIN_SWING, current_swing - 3)
             if 'MIN_CONFIDENCE_SCALP' not in updates:
                 updates['MIN_CONFIDENCE_SCALP'] = max(MIN_SCALP, current_scalp - 3)
             logger.info(f"TRENDING regime: widened breakout capture to 1%, lowered thresholds")
         else:
-            # Ranging: standard settings
             updates['BREAKOUT_CAPTURE_PCT'] = 0.003  # Default 0.3%
 
-        # 4. Global frequency safety valve — fires if PER-TYPE analysis didn't act
-        #    (prevents system from starving itself when no closed data exists yet)
+        # 3f. Drawdown Circuit Breaker (Upgrade 2)
+        # Calculate 24h PnL in R-multiples
+        cutoff_24h = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+        with self.datastore.get_connection() as conn:
+            closed_24h = self.datastore._fetch_query(conn, """
+                SELECT * FROM signals
+                WHERE status IN ('TP_HIT', 'SL_HIT')
+                AND updated_at >= ?
+            """, (cutoff_24h,))
+
+        total_r = 0.0
+        for sig in closed_24h:
+            rr = sig.get('rr_ratio') or 0.0
+            if sig['status'] == 'TP_HIT':
+                total_r += float(rr)
+            elif sig['status'] == 'SL_HIT':
+                total_r -= 1.0
+
+        if total_r <= -3.0:
+            logger.warning(f"🚨 Drawdown detected ({total_r:.2f}R <= -3.0R)! Activating Drawdown Circuit Breaker.")
+            self.datastore.set_setting("CIRCUIT_BREAKER_ACTIVE", "True")
+            self.datastore.set_setting("CIRCUIT_BREAKER_EXPIRE_TIME", (datetime.utcnow() + timedelta(hours=24)).isoformat())
+            updates['CIRCUIT_BREAKER_ACTIVE'] = "True"
+        else:
+            # Auto-reset if expired
+            cb_active = self.datastore.get_setting("CIRCUIT_BREAKER_ACTIVE")
+            if str(cb_active).lower() == 'true':
+                expire_str = self.datastore.get_setting("CIRCUIT_BREAKER_EXPIRE_TIME")
+                if expire_str:
+                    try:
+                        expire = datetime.fromisoformat(expire_str)
+                        if datetime.utcnow() >= expire:
+                            logger.info("Circuit breaker has expired. Deactivating.")
+                            self.datastore.set_setting("CIRCUIT_BREAKER_ACTIVE", "False")
+                            updates['CIRCUIT_BREAKER_ACTIVE'] = "False"
+                    except:
+                        pass
+
+        # 3g. Dynamic Altcoin Correlation Cap (Upgrade 3)
+        # Parse BTC volatility from the Mango Dashboard Cached data setting
+        btc_vol = 50
+        try:
+            raw_cache = self.datastore.get_setting("MANGO_DASHBOARD_CACHED_DATA")
+            if raw_cache:
+                cache_data = json.loads(raw_cache)
+                assets = cache_data.get("assets", {})
+                btc_data = assets.get("BTC") or assets.get("BTCUSDT")
+                if btc_data:
+                    btc_vol = int(btc_data.get("volatility", 50))
+                    logger.info(f"BTC Volatility parsed: {btc_vol}")
+        except Exception as e:
+            logger.warning(f"Could not parse BTC Volatility from cache: {e}")
+
+        if btc_vol < 30:
+            dynamic_cap = 3  # Alt season expansion
+        elif btc_vol >= 80:
+            dynamic_cap = 1  # Correlation tightening
+        else:
+            dynamic_cap = 2  # Standard cap
+            
+        logger.info(f"Setting dynamic correlated cap to {dynamic_cap} (BTC Vol: {btc_vol})")
+        self.datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", str(dynamic_cap))
+        updates['MAX_CRYPTO_SAME_DIRECTION'] = dynamic_cap
+
+        # 4. Global frequency safety valve
         if not updates:
             freq = metrics['signals_per_hour']
             if freq > 4.0:
@@ -211,14 +283,6 @@ class AutoOptimizer:
                           min_th: float, max_th: float):
         """
         Return the new threshold for a signal type, or None if no change needed.
-
-        Rules:
-        - Need ≥5 closed trades to make quality-based changes.
-        - WR < 25%  → raise by 2  (clear underperformance)
-        - WR < 40%  → raise by 1
-        - WR 40-60% → hold (acceptable range)
-        - WR > 60% AND frequency looks ok → lower by 1 to catch more
-        - If < 5 closed, skip quality check (frequency valve handles it globally)
         """
         tc = stats['total_closed']
         wr = stats['win_rate']  # None if no closed trades
@@ -247,11 +311,69 @@ class AutoOptimizer:
         """Call independently when analysis data is unavailable."""
         current_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING))
         current_scalp = float(self.datastore.get_setting("MIN_CONFIDENCE_SCALP", settings.MIN_CONFIDENCE_SCALP))
-        # With no data at all, just gently nudge down to ensure signals can flow
         if current_swing > MAX_SWING or current_scalp > MAX_SCALP:
             logger.warning("Thresholds above hard caps with no data — resetting to caps.")
             self.datastore.set_setting("MIN_CONFIDENCE_SWING", min(current_swing, MAX_SWING))
             self.datastore.set_setting("MIN_CONFIDENCE_SCALP", min(current_scalp, MAX_SCALP))
+
+    def _run_self_healing_backtest(self, lookback_days=14):
+        """
+        Backtests past signals in the DB across different confidence thresholds
+        to dynamically select the optimal thresholds that would have maximized net R-multiple.
+        """
+        logger.info(f"Running self-healing backtest over the last {lookback_days} days of signals...")
+        cutoff = (datetime.utcnow() - timedelta(days=lookback_days)).isoformat()
+        
+        with self.datastore.get_connection() as conn:
+            try:
+                closed_signals = self.datastore._fetch_query(conn, """
+                    SELECT * FROM signals
+                    WHERE status IN ('TP_HIT', 'SL_HIT')
+                    AND entry_time >= ?
+                """, (cutoff,))
+            except Exception as e:
+                logger.warning(f"Could not fetch signals for backtest: {e}")
+                return None, None
+            
+        if not closed_signals or len(closed_signals) < 5:
+            logger.info("Not enough historical signals in the backtest lookback window to optimize parameters.")
+            return None, None
+            
+        swings = [s for s in closed_signals if 'SWING' in str(s['signal_type']).upper()]
+        scalps = [s for s in closed_signals if 'SCALP' in str(s['signal_type']).upper()]
+        
+        def optimize_subset(subset, min_cap, max_cap, label):
+            best_threshold = None
+            best_net_r = -999.0
+            best_wr = 0.0
+            
+            # Grid search in 2-point increments
+            thresholds = list(range(min_cap, max_cap + 1, 2))
+            
+            for th in thresholds:
+                passed = [s for s in subset if s['confidence'] >= th]
+                if len(passed) < 3:
+                    continue
+                    
+                winners = [s for s in passed if s['status'] == 'TP_HIT']
+                losers = [s for s in passed if s['status'] == 'SL_HIT']
+                
+                win_rate = len(winners) / len(passed)
+                net_r = sum(float(w.get('rr_ratio') or 2.75) for w in winners) - len(losers)
+                
+                if net_r > best_net_r or (abs(net_r - best_net_r) < 0.01 and win_rate > best_wr):
+                    best_net_r = net_r
+                    best_threshold = th
+                    best_wr = win_rate
+                    
+            if best_threshold is not None:
+                logger.info(f"Optimal {label} threshold found: {best_threshold} (Net R: {best_net_r:+.2f}R, Win Rate: {best_wr:.1%})")
+            return best_threshold
+            
+        opt_swing = optimize_subset(swings, 60, 85, 'SWING')
+        opt_scalp = optimize_subset(scalps, 65, 88, 'SCALP')
+        
+        return opt_swing, opt_scalp
 
     def _send_discord_alert(self, updates, metrics, swing_stats, scalp_stats, hours):
         """Send update notification to Discord with per-type breakdown, active trades, and 24h PnL."""
@@ -268,10 +390,6 @@ class AutoOptimizer:
         active_count = len(active_signals)
 
         # ── Calculate 24h PnL from closed signals ────────────────────────────
-        # We approximate PnL using R-multiples based on the signal's RR ratio:
-        #   TP_HIT  → +RR (e.g. 2.75R swing win = +2.75% for 1% risk)
-        #   SL_HIT  → -1.0 (always lose 1R on a stop-loss)
-        # This gives a normalised "R" total — not dollar PnL (which depends on position size).
         from datetime import datetime, timedelta
         cutoff_24h = (datetime.utcnow() - timedelta(hours=24)).isoformat()
         with self.datastore.get_connection() as conn:
@@ -286,7 +404,7 @@ class AutoOptimizer:
         tp_count = 0
         sl_count = 0
         for sig in closed_24h:
-            rr = sig.get('rr_ratio') or 0
+            rr = sig.get('rr_ratio') or 0.0
             if sig['status'] == 'TP_HIT':
                 total_r += float(rr)
                 tp_count += 1
@@ -303,12 +421,10 @@ class AutoOptimizer:
         msg += f"↳ Swings: {wr_str(swing_stats)} | Scalps: {wr_str(scalp_stats)}\n"
 
         # ── Active Trades Block (with floating PnL) ─────────────────────────
-        # Fetch current prices for PnL calculation
         current_prices = {}
         try:
             latest_scrapes = self.datastore.get_latest_for_all_assets()
             for scrape in latest_scrapes:
-                # Key: BTC, SPX, etc. (normalized)
                 current_prices[scrape['name'].strip().upper()] = float(scrape['close'])
         except Exception:
             pass
@@ -318,7 +434,6 @@ class AutoOptimizer:
         open_pnl_count = 0
 
         if active_signals:
-            # First, calculate PnL for ALL positions to get the grand total
             for sig in active_signals:
                 asset_key = sig['asset_name'].strip().upper()
                 cur_price = current_prices.get(asset_key)
@@ -332,7 +447,6 @@ class AutoOptimizer:
                         open_pnl_count += 1
                     except: pass
 
-            # Now build the display lines for top 8
             for sig in active_signals[:8]:
                 direction = "🟢 L" if "LONG" in sig['signal_type'] else "🔴 S"
                 trade_type = "Swing" if "SWING" in sig['signal_type'] else "Scalp"
@@ -356,7 +470,6 @@ class AutoOptimizer:
             if active_count > 8:
                 msg += f"• *(+{active_count - 8} more...)*\n"
 
-            # Summed open PnL
             if open_pnl_count > 0:
                 open_sign = "+" if total_open_pnl >= 0 else ""
                 open_emoji = "🟩" if total_open_pnl >= 0 else "🟥"
@@ -400,6 +513,15 @@ class AutoOptimizer:
         advanced_updates = {k: v for k, v in updates.items() if "MIN_CONFIDENCE" not in k}
         if advanced_updates:
             msg += "\n**🛡️ ADVANCED SAFETY ENGAGED:**\n"
+            # Drawdown Circuit Breaker
+            cb_active = self.datastore.get_setting("CIRCUIT_BREAKER_ACTIVE")
+            if str(cb_active).lower() == 'true':
+                msg += "• **🚨 Drawdown Circuit Breaker**: **ACTIVE** (Only Tier A+ setups permitted)\n"
+            # Dynamic Altcoin Correlation Cap
+            if 'MAX_CRYPTO_SAME_DIRECTION' in advanced_updates:
+                cap_val = advanced_updates['MAX_CRYPTO_SAME_DIRECTION']
+                reason = "Alt Decoupling (3 Max)" if cap_val == 3 else ("High Risk Tightening (1 Max)" if cap_val == 1 else "Standard (2 Max)")
+                msg += f"• **Crypto Correlation Cap**: `{cap_val} positions max` ({reason})\n"
             if 'ASSET_BLACKLIST' in advanced_updates and advanced_updates['ASSET_BLACKLIST']:
                 msg += f"• **Toxic Assets Benched**: `{advanced_updates['ASSET_BLACKLIST']}`\n"
             if 'MAX_CONFIDENCE_SCALP' in advanced_updates and advanced_updates['MAX_CONFIDENCE_SCALP'] < 100:
@@ -408,7 +530,6 @@ class AutoOptimizer:
                 msg += f"• **Dynamic SL**: Buffers widened for chop protection\n"
 
         notifier.send_message(msg)
-
 
 
 if __name__ == "__main__":

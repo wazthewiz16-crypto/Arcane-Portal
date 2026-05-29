@@ -76,6 +76,26 @@ class MangoNativeSignalDetector:
             global_vol      = cache.get("market_volatility", 50)
             assets_data     = cache.get("assets", {})
 
+            # ── Drawdown Circuit Breaker check ───────────────────────────────────
+            cb_active = False
+            cb_val = self.datastore.get_setting("CIRCUIT_BREAKER_ACTIVE")
+            if str(cb_val).lower() == 'true':
+                expire_str = self.datastore.get_setting("CIRCUIT_BREAKER_EXPIRE_TIME")
+                if expire_str:
+                    try:
+                        from datetime import datetime
+                        expire = datetime.fromisoformat(expire_str)
+                        if datetime.utcnow() < expire:
+                            cb_active = True
+                            logger.info("[MangoNative] 🚨 Drawdown Circuit Breaker is ACTIVE! (Only Tier A+ setups permitted).")
+                    except:
+                        pass
+            
+            # ── Correlated Positions Cap ──
+            cap_val = self.datastore.get_setting("MAX_CRYPTO_SAME_DIRECTION")
+            MAX_CRYPTO_SAME_DIRECTION = int(cap_val) if cap_val else 2
+            # ────────────────────────────────────────────────────────────────────
+
             signals: List[Dict] = []
 
             for symbol, current_trend in current_badges.items():
@@ -147,6 +167,19 @@ class MangoNativeSignalDetector:
                         logger.info(f"[MangoNative] {symbol} SHORT blocked — "
                                     f"global market trend is LONG.")
                         continue
+
+                # ── 4.5. Correlated Positions Cap check ──
+                # Native signals are always crypto assets
+                active_sigs = self.datastore.get_active_signals()
+                active_crypto_longs  = sum(1 for s in active_sigs if s.get('asset_type') == 'crypto' and 'LONG'  in s['signal_type'])
+                active_crypto_shorts = sum(1 for s in active_sigs if s.get('asset_type') == 'crypto' and 'SHORT' in s['signal_type'])
+                
+                if direction == "LONG" and active_crypto_longs >= MAX_CRYPTO_SAME_DIRECTION:
+                    logger.info(f"[MangoNative] {symbol} LONG blocked — correlated cap reached ({active_crypto_longs} >= {MAX_CRYPTO_SAME_DIRECTION})")
+                    continue
+                if direction == "SHORT" and active_crypto_shorts >= MAX_CRYPTO_SAME_DIRECTION:
+                    logger.info(f"[MangoNative] {symbol} SHORT blocked — correlated cap reached ({active_crypto_shorts} >= {MAX_CRYPTO_SAME_DIRECTION})")
+                    continue
 
                 # ── 5. Deduplication ────────────────────────────────────────
                 if self._is_duplicate(symbol, direction):
@@ -224,6 +257,11 @@ class MangoNativeSignalDetector:
                     tier = 'A'
                 else:
                     tier = 'B'
+
+                # Drawdown Circuit Breaker Gating Check (Upgrade 2)
+                if cb_active and tier in ('A', 'B'):
+                    logger.info(f"[MangoNative] {symbol} {direction} blocked — Drawdown Circuit Breaker is active.")
+                    continue
 
                 # ── 6. Build signal ─────────────────────────────────────────
                 entry_price = self._get_latest_price(symbol)

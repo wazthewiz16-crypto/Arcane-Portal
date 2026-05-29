@@ -67,11 +67,28 @@ class MangoSignalDetector:
                         f"(BTC={btc_context['btc_dir']}, BTC.D={btc_context['btcd_dir']})")
         # ────────────────────────────────────────────────────────────────────
 
+        # ── Drawdown Circuit Breaker check ───────────────────────────────────
+        cb_active = False
+        cb_val = self.datastore.get_setting("CIRCUIT_BREAKER_ACTIVE")
+        if str(cb_val).lower() == 'true':
+            expire_str = self.datastore.get_setting("CIRCUIT_BREAKER_EXPIRE_TIME")
+            if expire_str:
+                try:
+                    from datetime import datetime
+                    expire = datetime.fromisoformat(expire_str)
+                    if datetime.utcnow() < expire:
+                        cb_active = True
+                        logger.info("🚨 Drawdown Circuit Breaker is ACTIVE! (Only Tier A+ setups permitted).")
+                except:
+                    pass
+        self.cb_active = cb_active
+        # ────────────────────────────────────────────────────────────────────
+
         # ── Correlated Positions Cap ────────────────────────────────────────────
         # Prevent stacking too many correlated crypto trades in the same direction.
-        # e.g. BTC, ETH, SOL, ARB all SHORT simultaneously — a single BTC bounce
-        # wipes every position at once. Cap at 2 per direction.
-        MAX_CRYPTO_SAME_DIRECTION = 2
+        # Dynamically scaled by the auto-optimizer based on BTC Dominance/Volatility.
+        cap_val = self.datastore.get_setting("MAX_CRYPTO_SAME_DIRECTION")
+        MAX_CRYPTO_SAME_DIRECTION = int(cap_val) if cap_val else 2
         active_sigs = self.datastore.get_active_signals()
         active_crypto_longs  = sum(1 for s in active_sigs if s.get('asset_type') == 'crypto' and 'LONG'  in s['signal_type'])
         active_crypto_shorts = sum(1 for s in active_sigs if s.get('asset_type') == 'crypto' and 'SHORT' in s['signal_type'])
@@ -486,6 +503,11 @@ class MangoSignalDetector:
                 tier = 'B'
                 
             signal['tier'] = tier
+            
+            # Drawdown Circuit Breaker Gating Check (Upgrade 2)
+            if getattr(self, 'cb_active', False) and tier in ('A', 'B'):
+                logger.info(f"🚫 Circuit Breaker GATING: {asset_name} {signal['signal_type']} (Tier {tier}) blocked — Drawdown Circuit Breaker is active.")
+                return None
             
             # Attach confluence metrics to the signal dictionary for Discord embeds
             signal['mango_confluence'] = {
