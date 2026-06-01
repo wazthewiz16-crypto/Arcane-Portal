@@ -286,32 +286,49 @@ async def run_scraper_and_detect():
         traceback.print_exc()
         
     # Step 3: Trade Radar (Runs 4 times a day)
-    # The cron starts explicitly on the 10th/15th minute mark, we want the start of the hour run.
-    if now.hour in [7, 13, 18, 22] and now.minute < 10:
-        print("\n[STEP 3] Running Trade Radar (scheduled hour)...")
-        try:
-            from trade_radar import run_trade_radar
-            run_trade_radar()
-        except Exception as e:
-            print(f"⚠️ Error running trade radar: {e}")
+    # The cron starts explicitly on the 10th/15th minute mark.
+    # To be extremely robust against cloud container spin-up latencies or cron delays,
+    # we use a persistent database check to guarantee the Trade Radar runs exactly once during the target hour.
+    target_radar_hours = [7, 13, 18, 22]
+    if now.hour in target_radar_hours:
+        current_radar_key = f"{now.strftime('%Y-%m-%d')}-{now.hour}"
+        last_radar_run = datastore.get_setting("LAST_RADAR_RUN_KEY")
+        
+        if last_radar_run != current_radar_key:
+            print(f"\n[STEP 3] Running Trade Radar (scheduled hour: {now.hour}:00 EST)...")
+            try:
+                from trade_radar import run_trade_radar
+                run_trade_radar()
+                datastore.set_setting("LAST_RADAR_RUN_KEY", current_radar_key)
+                print(f"[OK] Trade Radar run successfully logged for key: {current_radar_key}")
+            except Exception as e:
+                print(f"⚠️ Error running trade radar: {e}")
             
     # Step 4: Weekly ML Model Retraining
-    # Run every Saturday at 5:00 AM EST (TradFi markets closed, lowest system usage)
-    if now.weekday() == 5 and now.hour == 5 and now.minute < 10:
-        print("\n[STEP 4] Initiating Weekly ML Model Retraining...")
-        try:
-            from ml_regime import fetch_and_prepare_data, generate_features, train_model
-            df = fetch_and_prepare_data()
-            feats = generate_features(df)
-            if not feats.empty:
-                train_model(feats)
-                print("[OK] Weekly ML retraining completed successfully.")
-            else:
-                print("[WARN] Not enough data to retrain ML model yet.")
-        except Exception as e:
-            print(f"[WARN] Error during ML retrain: {e}")
-            import traceback
-            traceback.print_exc()
+    # Run every Saturday (weekday 5) on the very first cron run of the day
+    # (TradFi markets closed, lowest system usage).
+    # We use a persistent database check to guarantee it runs exactly once on Saturday,
+    # making it immune to cloud container latency or Daylight Saving Time offsets.
+    if now.weekday() == 5:
+        current_retrain_key = now.strftime('%Y-%m-%d')
+        last_retrain_run = datastore.get_setting("LAST_ML_RETRAIN_KEY")
+        
+        if last_retrain_run != current_retrain_key:
+            print(f"\n[STEP 4] Initiating Weekly ML Model Retraining (Saturday first run: {now.strftime('%I:%M %p EST')})...")
+            try:
+                from ml_regime import fetch_and_prepare_data, generate_features, train_model
+                df = fetch_and_prepare_data()
+                feats = generate_features(df)
+                if not feats.empty:
+                    train_model(feats)
+                    datastore.set_setting("LAST_ML_RETRAIN_KEY", current_retrain_key)
+                    print(f"[OK] Weekly ML retraining completed successfully and logged for key: {current_retrain_key}")
+                else:
+                    print("[WARN] Not enough data to retrain ML model yet.")
+            except Exception as e:
+                print(f"[WARN] Error during ML retrain: {e}")
+                import traceback
+                traceback.print_exc()
 
     print(f"\n✅ Streaming Complete! {total_signals} new signals generated.")
     
