@@ -1150,8 +1150,8 @@ class MangoSignalDetector:
         'US30':   {'swing_rr': 2.0, 'scalp_rr': 1.75},
         'AUS200': {'swing_rr': 2.0, 'scalp_rr': 1.75},
         'DXY':    {'swing_rr': 2.0, 'scalp_rr': 1.75},
-        # Commodities — strong trends, hold 2.2R targets
-        'GOLD':   {'swing_rr': 2.2, 'scalp_rr': 1.75},
+        # Commodities / Gold-backed Crypto — strong trends, hold 2.2R targets
+        'PAXG':   {'swing_rr': 2.2, 'scalp_rr': 1.75},
         'SILVER': {'swing_rr': 2.2, 'scalp_rr': 1.75},
         'OIL':    {'swing_rr': 2.2, 'scalp_rr': 1.75},
     }

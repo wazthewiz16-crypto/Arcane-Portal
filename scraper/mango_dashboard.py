@@ -460,8 +460,8 @@ class MangoDashboardScraper:
             # Core watchlist assets we actively track and trade
             CORE_SCRAPE_ASSETS = {
                 "BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "LINK", "ARB", "AVAX", "ADA", "HYPE",
-                "TRX", "INJ", "ONDO", "NEAR",
-                "SPY", "QQQ", "GLD", "SLV", "USO", "SPX", "NDX", "GOLD", "SILVER", "OIL"
+                "TRX", "INJ", "ONDO", "NEAR", "PAXG",
+                "SPY", "QQQ", "GLD", "SLV", "USO", "SPX", "NDX", "SILVER", "OIL"
             }
 
             # --- Per-asset timeframe breakdown scraping ---
@@ -539,6 +539,7 @@ class MangoDashboardScraper:
             "SPX": "SPY",
             "NDX": "QQQ",
             "GOLD": "GLD",
+            "PAXG": "GLD",
             "SILVER": "SLV",
             "OIL": "USO"
         }

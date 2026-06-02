@@ -245,6 +245,12 @@ Arcane-Portal/
 
 **Latest Update:** 2026-06-02
 
+- **Gold-Backed Crypto Replacement (PAXGUSDT) (NEW)**:
+  - **Asset Swap:** Replaced `GOLD` (OANDA:XAUUSD, type `tradfi`) with `PAXG` (BINANCE:PAXGUSDT, type `crypto`) in `config/assets.py` to maintain a strict limit of 24 active watchlist assets while optimizing for cryptocurrency trading.
+  - **24/7 Scraping & Signals:** Since PAXG is classified as `"type": "crypto"`, it is scraped and monitored 24/7 (including weekends), unlike the old TradFi `GOLD` asset which was disabled on weekends.
+  - **High-Performance Target Alignment:** Mapped `'PAXG'` in `detection/signals.py` to the high-performing commodity target profile (`2.2:1` swing R:R, `1.75:1` scalp R:R) to preserve the exact technical target math of gold.
+  - **Premium Dashboard Confluence Mapping:** Mapped `'PAXG'` to `'GLD'` (Gold ETF) in the Mango Dashboard sniffer `SYMBOL_MAP` in `scraper/mango_dashboard.py` so that it seamlessly inherits identical premium trend, volatility, and technical flag indicators from the dashboard.
+
 - **Trade Radar Scheduler Optimization & Dynamic Retry (NEW)**:
   - **Dynamic Retries:** Upgraded the scheduler in `run_signals.py` to only set the database lock key `LAST_RADAR_RUN_KEY` when the Trade Radar *actually* successfully posts a message to Discord. This prevents the "first-run-lock" issue where an early cron run with no active signals would lock out subsequent runs in the same hour when a signal pulls back into the prime zone.
   - **Active Trade Status Fallback:** Upgraded `trade_radar.py` to fall back to an **"Active Trade Status Update"** containing active trade PnLs, R-multiple drift, and auto-attached screenshots when no active setups meet the narrow prime entry filter (`[-2.0%, +1.5%]`). This guarantees the user always receives the scheduled Discord posts at 7 AM, 1 PM, 6 PM, and 10 PM.

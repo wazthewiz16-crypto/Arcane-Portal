@@ -25,7 +25,7 @@ ASSETS = [
     {"symbol": "OANDA:US30USD", "name": "US30", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "OANDA:AU200AUD", "name": "AUS200", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "CAPITALCOM:DXY", "name": "DXY", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
-    {"symbol": "OANDA:XAUUSD", "name": "GOLD", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
+    {"symbol": "BINANCE:PAXGUSDT", "name": "PAXG", "type": "crypto", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "OANDA:WTICOUSD", "name": "OIL", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
     {"symbol": "OANDA:XAGUSD", "name": "SILVER", "type": "tradfi", "timeframes": ["4d", "1d", "12h", "4h", "1h", "15m"]},
 ]
