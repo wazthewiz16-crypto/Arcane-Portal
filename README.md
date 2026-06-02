@@ -243,7 +243,20 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-05-24
+**Latest Update:** 2026-06-02
+
+- **Trade Radar Scheduler Optimization & Dynamic Retry (NEW)**:
+  - **Dynamic Retries:** Upgraded the scheduler in `run_signals.py` to only set the database lock key `LAST_RADAR_RUN_KEY` when the Trade Radar *actually* successfully posts a message to Discord. This prevents the "first-run-lock" issue where an early cron run with no active signals would lock out subsequent runs in the same hour when a signal pulls back into the prime zone.
+  - **Active Trade Status Fallback:** Upgraded `trade_radar.py` to fall back to an **"Active Trade Status Update"** containing active trade PnLs, R-multiple drift, and auto-attached screenshots when no active setups meet the narrow prime entry filter (`[-2.0%, +1.5%]`). This guarantees the user always receives the scheduled Discord posts at 7 AM, 1 PM, 6 PM, and 10 PM.
+  - **Terminology Update:** Renamed the status label `"Early Profit"` to `"Running Profit"` for clearer terminology.
+
+- **Mid-Cap Altcoin Swing Risk-Reward Tweak (NEW)**:
+  - Tuned the asset-specific risk-reward profiles (`ASSET_RR_PROFILES`) in `detection/signals.py` to increase the `swing_rr` targets for all mid-cap altcoins (including **XRP**, **ADA**, **DOGE**, **LINK**, **AVAX**, **ARB**, **HYPE**, **TRX**, **INJ**, **ONDO**, and **NEAR**) from **`1.5` to `1.8`**, bringing swing targets closer to the 2:1 sweet spot while keeping scalps at `1.5` to secure quick wins in fast mean-reverting conditions.
+
+- **Mango Dashboard Flags & Timeframe Merging (NEW)**:
+  - Fixed raw sniffer API indicator parsing (mapping `golden_cross`, `ichimoku`, `rsi_divergence`, `premium_discount` direct fields) and implemented cross-timeframe merging across `1D`, `4H`, `12H`, and `1H` in detectors.
+
+**Previous Update:** 2026-05-24
 
 - **Upgraded ML Retraining Pipeline & Dynamic Setup Tiering (NEW)**:
   - **Dynamic Setup Tiering:** Signals are classified into distinct quality tiers: **Tier A+ (Ultra Setup)**, **Tier A (High Conviction)**, and **Tier B (Standard Setup)**. Dynamic border color mapping (Vibrant Gold for Tier A+) and prominent embed banners dynamically isolate "cream of the crop" setups to prevent overtrading.

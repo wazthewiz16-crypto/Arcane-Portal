@@ -90,7 +90,7 @@ def run_trade_radar():
 
     if not evaluated:
         print("Could not evaluate PnL for active signals.")
-        return
+        return False
 
     # Filter out trades that are too close to SL (< 0.5% away) or already massively in profit (> 2.5%)
     # We want "Prime" trades: slightly negative (up to -2%) to slightly positive (up to +1.5%)
@@ -111,16 +111,26 @@ def run_trade_radar():
         return conf + pnl_bonus
 
     prime_trades.sort(key=rank_score, reverse=True)
-    top_trades = prime_trades[:5]
+    
+    is_fallback = False
+    if prime_trades:
+        top_trades = prime_trades[:5]
+        # Build the Discord message for prime entries
+        msg = "**📡 ARCANE TRADE RADAR (Prime Entries)**\n"
+        msg += "*Top high-probability setups currently near entry zones:*\n\n"
+    else:
+        is_fallback = True
+        # Sort all evaluated active trades by confidence/PnL
+        evaluated.sort(key=lambda x: x['conf'], reverse=True)
+        top_trades = evaluated[:5]
+        # Build the Discord message for active trade status
+        msg = "**📡 ARCANE TRADE RADAR (Active Trade Status)**\n"
+        msg += "*No new setups are currently in prime entry zones. Current active setups are running in profit/loss:*\n\n"
 
     if not top_trades:
-        print("No prime trades meet the radar criteria right now.")
-        return
+        print("No active trades to process.")
+        return False
 
-    # Build the Discord message
-    msg = "**📡 ARCANE TRADE RADAR (Prime Entries)**\n"
-    msg += "*Top high-probability setups currently near entry zones:*\n\n"
-    
     for t in top_trades:
         sig = t['signal']
         direction = "🟢 LONG" if "LONG" in sig['signal_type'] else "🔴 SHORT"
@@ -134,7 +144,7 @@ def run_trade_radar():
             sign = "+" if r_drift > 0 else ""
             status = f"At exact entry (`{sign}{r_drift:.2f}R`)"
         else:
-            status = f"Early Profit (`+{r_drift:.2f}R`)"
+            status = f"Running Profit (`+{r_drift:.2f}R`)"
             
         tier = sig.get('tier', 'N/A')
         if not tier:
@@ -188,13 +198,15 @@ def run_trade_radar():
             except Exception as e:
                 print(f"Error saving temporary screenshot file: {e}")
 
+    did_send = False
     try:
         # Send
         print(f"Sending {len(top_trades)} prime trades to Radar Discord channel...")
         if screenshot_file:
-            notifier.send_message_with_file(msg, screenshot_file)
+            did_send = notifier.send_message_with_file(msg, screenshot_file)
         else:
-            notifier.send_message(msg)
+            did_send = notifier.send_message(msg)
+        return did_send
     finally:
         # Clean up temporary screenshot file
         if screenshot_file and os.path.exists(screenshot_file):

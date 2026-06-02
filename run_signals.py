@@ -298,9 +298,13 @@ async def run_scraper_and_detect():
             print(f"\n[STEP 3] Running Trade Radar (scheduled hour: {now.hour}:00 EST)...")
             try:
                 from trade_radar import run_trade_radar
-                run_trade_radar()
-                datastore.set_setting("LAST_RADAR_RUN_KEY", current_radar_key)
-                print(f"[OK] Trade Radar run successfully logged for key: {current_radar_key}")
+                # Set database lock key only if the trade radar actually successfully posts to Discord
+                did_post = run_trade_radar()
+                if did_post:
+                    datastore.set_setting("LAST_RADAR_RUN_KEY", current_radar_key)
+                    print(f"[OK] Trade Radar run successfully logged for key: {current_radar_key}")
+                else:
+                    print(f"[INFO] Trade Radar executed but did not post. Lock key NOT set, will retry this hour.")
             except Exception as e:
                 print(f"⚠️ Error running trade radar: {e}")
             
