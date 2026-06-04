@@ -260,8 +260,14 @@ class AutoOptimizer:
         else:
             dynamic_cap = 2  # Standard cap
             
+        # Auto-loosen correlation cap if signal frequency is critically low (< 0.3/hr)
+        # to prevent starving the system when signal volume is dried up
+        freq = metrics['signals_per_hour']
+        if freq < 0.3:
+            logger.info(f"Signal frequency is low ({freq:.2f}/hr). Loosening correlation cap (+1).")
+            dynamic_cap = min(3, dynamic_cap + 1)
+            
         logger.info(f"Setting dynamic correlated cap to {dynamic_cap} (BTC Vol: {btc_vol})")
-        self.datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", str(dynamic_cap))
         updates['MAX_CRYPTO_SAME_DIRECTION'] = dynamic_cap
 
         # 4. Global frequency safety valve

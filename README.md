@@ -38,7 +38,7 @@
   - **Stop Loss**: Mango Dynamic boundaries + timeframe-specific buffers + enforced minimum risk gaps to avoid micro-wicks.
   - **Partial Take Profit (1R → Breakeven)**: When price moves +1R in your favour the system marks partial TP hit, moves the stop-loss to the entry price (breakeven) and lets the remaining position ride to the full target. Losing trades that reached +1R before reversing now close as `BREAKEVEN` instead of `SL_HIT`.
   - **Risk/Reward Scaling**: Swings target 2.75R; Scalps target 1.75R.
-- 🚫 **Correlated Positions Cap**: Prevents stacking more than 2 crypto positions in the same direction simultaneously (e.g. BTC + ETH + SOL + ARB all SHORT at once). When the cap is reached new signals in that direction are suppressed until an existing one closes, capping portfolio-wide correlated risk.
+- 🚫 **Dynamic Correlated Positions Cap**: Dynamically adjusts active crypto position limits (between 1 and 3) based on BTC volatility, and auto-loosens the cap by `+1` (up to a maximum of 3) when 24h signal frequency is critically low (`< 0.3` signals/hour) to prevent starving the system during dry market phases. When the cap is reached new signals in that direction are suppressed until an existing one closes, capping portfolio-wide correlated risk.
 - 📐 **Minimum SL Floor for Crypto Scalps**: Crypto scalp stop-losses are now enforced to a minimum of 1.8% from entry (up from 1.5%) to avoid being wick-hunted on volatile 15m candles.
 - 🌍 **Multi-Asset Support**: Broad market support handling both Crypto and TradFi asset specifics.
 - ₿ **BTC Macro Context Filter**: All altcoin signals are validated against the live BTC price trend and BTC Dominance (BTC.D) direction before firing. The system implements the full Bitcoin Dominance Cycle:
@@ -244,7 +244,13 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-06-03
+**Latest Update:** 2026-06-04
+
+- **Dynamic Crypto Correlation Cap Auto-Loosening (NEW)**:
+  - **Auto-Loosening Logic:** Added a mechanism to `auto_optimizer.py` that checks the 24-hour signal frequency (`signals_per_hour`). If it drops below `0.3` signals per hour (indicating critically low activity / a dry spell), the cryptocurrency correlation cap (`MAX_CRYPTO_SAME_DIRECTION`) is automatically loosened by `+1` (capped at a maximum of `3` positions).
+  - **Bypassing Redundant DB Writes:** Centralized database updates to the main change-detection loop, removing a premature database write that was bypassing Discord alert notifications. Now, all parameter updates—including correlation cap adjustments—correctly dispatch immediate alerts to Discord.
+
+**Previous Update:** 2026-06-03
 
 - **Auto-Optimizer Fallback Heartbeat & Subtask Error Alerts (NEW)**:
   - **No-Signal Heartbeat:** Modified `auto_optimizer.py` to prevent silent exits when there are no recent signals in the 24-hour analysis window. It now executes all optimizations, runs a 14-day backtest, detects regimes/circuit breakers, saves settings, and posts a daily status summary to Discord (rate-limited to once every 23 hours if nothing changes, or posted immediately upon setting adjustments).
