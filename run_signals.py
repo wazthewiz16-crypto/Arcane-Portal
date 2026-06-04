@@ -1,6 +1,14 @@
 """Run scraper and generate signals - Manual execution"""
 import sys
 import os
+import io
+
+# Force UTF-8 encoding for standard output and error to avoid UnicodeEncodeErrors
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 from pathlib import Path
 
 # Add project root to path
@@ -16,11 +24,27 @@ from integrations.discord_notifier import DiscordNotifier
 from config.assets import get_active_assets
 from utils.logger import setup_logger
 import asyncio
+import json
 
 logger = setup_logger(__name__)
 
 async def run_scraper_and_detect():
     """Run scraper, detect signals, and send Discord alerts"""
+    
+    # Initialize components
+    datastore = MangoDataStore()
+    
+    # Debug: Save production env variables to DB
+    try:
+        debug_env = {
+            "DISCORD_WEBHOOK_URL": os.getenv("DISCORD_WEBHOOK_URL", "NOT_FOUND")[:40] + "...",
+            "DATABASE_URL": os.getenv("DATABASE_URL", "NOT_FOUND")[:45] + "...",
+            "MANGO_CONFLUENCE_ENABLED": os.getenv("MANGO_CONFLUENCE_ENABLED", "NOT_FOUND"),
+            "USE_SMART_SCHEDULING": os.getenv("USE_SMART_SCHEDULING", "NOT_FOUND"),
+        }
+        datastore.set_setting("PROD_ENV_DEBUG", json.dumps(debug_env))
+    except Exception as e:
+        print(f"Debug env save failed: {e}")
     
     print("=" * 60)
     print("ARCANE PORTAL V2 - MANUAL SIGNAL GENERATION")
@@ -42,8 +66,7 @@ async def run_scraper_and_detect():
         return
     # --------------------------------------
     
-    # Initialize components
-    datastore = MangoDataStore()
+    # Initialize remaining components
     detector = MangoSignalDetector(datastore)
     notifier = DiscordNotifier()
     
@@ -126,7 +149,12 @@ async def run_scraper_and_detect():
         datastore.update_signal_statuses()
         print("[OK] Signal statuses monitored")
     except Exception as e:
-        print(f"[WARN] Error updating statuses: {e}")
+        err_msg = f"⚠️ [STEP 1] Error updating signal statuses: {e}"
+        print(err_msg, file=sys.stderr)
+        try:
+            notifier.send_error_alert(err_msg)
+        except Exception as de:
+            print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
 
     # Step 2: Run Scraper & Detect in Stream
     print("\n[STEP 2] Running TradingView scraper (Streaming Mode)...")
@@ -306,7 +334,13 @@ async def run_scraper_and_detect():
                 else:
                     print(f"[INFO] Trade Radar executed but did not post. Lock key NOT set, will retry this hour.")
             except Exception as e:
-                print(f"⚠️ Error running trade radar: {e}")
+                import traceback
+                err_msg = f"⚠️ [STEP 3] Error running Trade Radar: {e}\n\n{traceback.format_exc()}"
+                print(err_msg, file=sys.stderr)
+                try:
+                    notifier.send_error_alert(err_msg[:1900])
+                except Exception as de:
+                    print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
             
     # Step 4: Weekly ML Model Retraining
     # Run every Saturday (weekday 5) on the very first cron run of the day
@@ -330,9 +364,13 @@ async def run_scraper_and_detect():
                 else:
                     print("[WARN] Not enough data to retrain ML model yet.")
             except Exception as e:
-                print(f"[WARN] Error during ML retrain: {e}")
                 import traceback
-                traceback.print_exc()
+                err_msg = f"⚠️ [STEP 4] Error during ML retrain: {e}\n\n{traceback.format_exc()}"
+                print(err_msg, file=sys.stderr)
+                try:
+                    notifier.send_error_alert(err_msg[:1900])
+                except Exception as de:
+                    print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
 
     print(f"\n✅ Streaming Complete! {total_signals} new signals generated.")
     
@@ -346,5 +384,21 @@ if __name__ == "__main__":
         # deadlocks in the Railway Docker container which causes silent cron failures.
         asyncio.run(asyncio.wait_for(run_scraper_and_detect(), timeout=3600))
     except asyncio.TimeoutError:
-        print("❌ CRITICAL: Scraper run timed out after 60 minutes! Probable Playwright deadlock.")
+        msg = "❌ CRITICAL: Scraper run timed out after 60 minutes! Probable Playwright deadlock."
+        print(msg, file=sys.stderr)
+        try:
+            from integrations.discord_notifier import DiscordNotifier
+            DiscordNotifier().send_error_alert(msg)
+        except Exception as de:
+            print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        import traceback
+        err_msg = f"❌ CRITICAL ERROR: Scraper run failed with exception:\n{str(e)}\n\n{traceback.format_exc()}"
+        print(err_msg, file=sys.stderr)
+        try:
+            from integrations.discord_notifier import DiscordNotifier
+            DiscordNotifier().send_error_alert(err_msg[:1900])
+        except Exception as de:
+            print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
         sys.exit(1)

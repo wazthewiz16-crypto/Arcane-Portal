@@ -1,8 +1,15 @@
 """Trade Radar - Pushes prime active trades to Discord."""
 import sys
 import os
-from pathlib import Path
+import io
 
+# Force UTF-8 encoding for standard output and error to avoid UnicodeEncodeErrors
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
+from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from dotenv import load_dotenv
@@ -217,4 +224,15 @@ def run_trade_radar():
                 print(f"Error removing temporary file {screenshot_file}: {e}")
     
 if __name__ == "__main__":
-    run_trade_radar()
+    try:
+        run_trade_radar()
+    except Exception as e:
+        import traceback
+        err_msg = f"❌ CRITICAL ERROR: TradeRadar failed with exception:\n{str(e)}\n\n{traceback.format_exc()}"
+        print(err_msg, file=sys.stderr)
+        try:
+            from integrations.discord_notifier import DiscordNotifier
+            DiscordNotifier().send_error_alert(err_msg[:1900])
+        except Exception as de:
+            print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
+        sys.exit(1)

@@ -179,7 +179,8 @@ A self-healing loop that runs periodically to evaluate the Win Rate, Signal Freq
 - If signal frequency drops below 0.3/hr, it lowers thresholds (Safety Valve) to ensure the system doesn't starve itself.
 - Detects market regime and adjusts breakout capture accordingly.
 - Blacklists toxic assets (0W/3L+) and enforces "Too Perfect" confidence caps.
-*It updates parameters directly in the database and sends plain-text reports to Discord.*
+- **Fail-safe Heartbeat & Change Detection (NEW):** Instead of exiting silently when no signals are found in the 24-hour analysis window, the script runs fallback calculations (such as a 14-day optimization backtest, regime detection, drawdown circuit breaker, and correlation cap), updates database settings, and posts a daily summary status to Discord (throttled to once every 23 hours if parameters don't change, or immediately if any parameter is adjusted).
+*It updates parameters directly in the database and sends reports to Discord.*
 
 **Recommended Schedule:** Run 3x daily (e.g. 3am, 9:30am, 5pm EST) via Railway Cron or external scheduler to capture post-session resolutions.
 
@@ -243,7 +244,13 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-06-02
+**Latest Update:** 2026-06-03
+
+- **Auto-Optimizer Fallback Heartbeat & Subtask Error Alerts (NEW)**:
+  - **No-Signal Heartbeat:** Modified `auto_optimizer.py` to prevent silent exits when there are no recent signals in the 24-hour analysis window. It now executes all optimizations, runs a 14-day backtest, detects regimes/circuit breakers, saves settings, and posts a daily status summary to Discord (rate-limited to once every 23 hours if nothing changes, or posted immediately upon setting adjustments).
+  - **Discord Error Alerts for Subtasks:** Wrapped all critical background tasks inside `run_signals.py` (status updating, Trade Radar execution, and ML retraining) with try-except blocks that send detailed exception warnings directly to Discord on failure.
+
+**Previous Update:** 2026-06-02
 
 - **Gold-Backed Crypto Replacement (PAXGUSDT) (NEW)**:
   - **Asset Swap:** Replaced `GOLD` (OANDA:XAUUSD, type `tradfi`) with `PAXG` (BINANCE:PAXGUSDT, type `crypto`) in `config/assets.py` to maintain a strict limit of 24 active watchlist assets while optimizing for cryptocurrency trading.

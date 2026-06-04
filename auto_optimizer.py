@@ -8,6 +8,14 @@ and a Self-Healing Parameter Backtesting engine.
 """
 import sys
 import os
+import io
+
+# Force UTF-8 encoding for standard output and error to avoid UnicodeEncodeErrors
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 import logging
 import json
 from pathlib import Path
@@ -50,29 +58,41 @@ class AutoOptimizer:
 
         # 1. Fetch signals
         analysis = self.analyzer.analyze_recent_signals(hours)
-        if 'error' in analysis:
-            logger.warning(f"Analysis failed: {analysis['error']}")
+        has_analysis_error = 'error' in analysis
+        
+        if has_analysis_error:
+            logger.warning(f"Analysis failed/No recent signals in last {hours} hours: {analysis['error']}")
             self._apply_frequency_safety_valve(hours)
-            return
+            
+            # Setup defaults for no recent signals
+            metrics = {
+                'win_rate_pct': 0.0,
+                'winners': 0,
+                'losers': 0,
+                'total_signals': 0,
+                'signals_per_hour': 0.0
+            }
+            breakdowns = {}
+            total_closed = 0
+        else:
+            metrics    = analysis['metrics']
+            breakdowns = analysis['breakdowns']
+            total_closed = metrics['winners'] + metrics['losers']
 
-        metrics    = analysis['metrics']
-        breakdowns = analysis['breakdowns']
-        total_closed = metrics['winners'] + metrics['losers']
-
-        # Expand to 48 h if sample is thin
-        if total_closed < 5 and hours < 48:
-            logger.info(f"Only {total_closed} closed trades in {hours}h — expanding to 48h...")
-            analysis_48 = self.analyzer.analyze_recent_signals(48)
-            if 'error' not in analysis_48:
-                m48 = analysis_48['metrics']
-                tc48 = m48['winners'] + m48['losers']
-                if tc48 >= 5:
-                    logger.info(f"Using 48h data: {tc48} closed trades.")
-                    analysis      = analysis_48
-                    metrics       = m48
-                    breakdowns    = analysis['breakdowns']
-                    total_closed  = tc48
-                    hours         = 48
+            # Expand to 48 h if sample is thin
+            if total_closed < 5 and hours < 48:
+                logger.info(f"Only {total_closed} closed trades in {hours}h — expanding to 48h...")
+                analysis_48 = self.analyzer.analyze_recent_signals(48)
+                if 'error' not in analysis_48:
+                    m48 = analysis_48['metrics']
+                    tc48 = m48['winners'] + m48['losers']
+                    if tc48 >= 5:
+                        logger.info(f"Using 48h data: {tc48} closed trades.")
+                        analysis      = analysis_48
+                        metrics       = m48
+                        breakdowns    = analysis['breakdowns']
+                        total_closed  = tc48
+                        hours         = 48
 
         logger.info(
             f"Metrics ({hours}h): WR={metrics['win_rate_pct']}%, "
@@ -119,43 +139,46 @@ class AutoOptimizer:
                 updates['MIN_CONFIDENCE_SCALP'] = scalp_update
             
         # 3b. Advanced Optimization: Asset Blacklisting
-        toxic_assets = []
-        for asset, a_stats in breakdowns.get('by_asset', {}).items():
-            if a_stats['wins'] == 0 and a_stats['losses'] >= 3:
-                toxic_assets.append(asset.upper())
-        if toxic_assets:
-            logger.info(f"Blacklisting toxic assets: {toxic_assets}")
-            updates['ASSET_BLACKLIST'] = ",".join(toxic_assets)
-        else:
-            updates['ASSET_BLACKLIST'] = "" # Clear blacklist if no longer toxic
+        if not has_analysis_error:
+            toxic_assets = []
+            for asset, a_stats in breakdowns.get('by_asset', {}).items():
+                if a_stats['wins'] == 0 and a_stats['losses'] >= 3:
+                    toxic_assets.append(asset.upper())
+            if toxic_assets:
+                logger.info(f"Blacklisting toxic assets: {toxic_assets}")
+                updates['ASSET_BLACKLIST'] = ",".join(toxic_assets)
+            else:
+                updates['ASSET_BLACKLIST'] = "" # Clear blacklist if no longer toxic
 
         # 3c. Advanced Optimization: Max Confidence Cap ("Too Perfect" filter)
-        hi_conf_wins = 0
-        hi_conf_losses = 0
-        for bucket, c_stats in breakdowns.get('by_confidence', {}).items():
-            if bucket >= 85: # Look at extreme setups
-                hi_conf_wins += c_stats['wins']
-                hi_conf_losses += c_stats['losses']
-        
-        hi_conf_total = hi_conf_wins + hi_conf_losses
-        hi_conf_wr = (hi_conf_wins / hi_conf_total * 100) if hi_conf_total > 0 else 0
-        
-        if hi_conf_total >= 5 and hi_conf_wr <= 25:
-            logger.info(f"High-confidence setups are bleeding (WR: {hi_conf_wr:.0f}%). Capping Max Confidence to 88.")
-            updates['MAX_CONFIDENCE_SWING'] = 88
-            updates['MAX_CONFIDENCE_SCALP'] = 88
-        else:
-            updates['MAX_CONFIDENCE_SWING'] = 100
-            updates['MAX_CONFIDENCE_SCALP'] = 100
+        if not has_analysis_error:
+            hi_conf_wins = 0
+            hi_conf_losses = 0
+            for bucket, c_stats in breakdowns.get('by_confidence', {}).items():
+                if bucket >= 85: # Look at extreme setups
+                    hi_conf_wins += c_stats['wins']
+                    hi_conf_losses += c_stats['losses']
+            
+            hi_conf_total = hi_conf_wins + hi_conf_losses
+            hi_conf_wr = (hi_conf_wins / hi_conf_total * 100) if hi_conf_total > 0 else 0
+            
+            if hi_conf_total >= 5 and hi_conf_wr <= 25:
+                logger.info(f"High-confidence setups are bleeding (WR: {hi_conf_wr:.0f}%). Capping Max Confidence to 88.")
+                updates['MAX_CONFIDENCE_SWING'] = 88
+                updates['MAX_CONFIDENCE_SCALP'] = 88
+            else:
+                updates['MAX_CONFIDENCE_SWING'] = 100
+                updates['MAX_CONFIDENCE_SCALP'] = 100
 
         # 3d. Advanced Optimization: Dynamic Stop Loss Buffers (Chop Protection)
-        if metrics['losers'] >= 5 and metrics['win_rate_pct'] < 30:
-            logger.info(f"Systemic bleed detected (WR: {metrics['win_rate_pct']}%). Widening SL buffers for chop protection.")
-            updates['SL_BUFFER_PCT_SWING'] = 0.025
-            updates['SL_BUFFER_PCT_SCALP'] = 0.012
-        elif metrics['win_rate_pct'] > 45:
-            updates['SL_BUFFER_PCT_SWING'] = 0.015
-            updates['SL_BUFFER_PCT_SCALP'] = 0.008
+        if not has_analysis_error:
+            if metrics['losers'] >= 5 and metrics['win_rate_pct'] < 30:
+                logger.info(f"Systemic bleed detected (WR: {metrics['win_rate_pct']}%). Widening SL buffers for chop protection.")
+                updates['SL_BUFFER_PCT_SWING'] = 0.025
+                updates['SL_BUFFER_PCT_SCALP'] = 0.012
+            elif metrics['win_rate_pct'] > 45:
+                updates['SL_BUFFER_PCT_SWING'] = 0.015
+                updates['SL_BUFFER_PCT_SCALP'] = 0.008
 
         # 3e. Market Regime Detection (TRENDING vs RANGING)
         regime_result = self.regime_detector.detect_regime(lookback_hours=4)
@@ -242,7 +265,8 @@ class AutoOptimizer:
         updates['MAX_CRYPTO_SAME_DIRECTION'] = dynamic_cap
 
         # 4. Global frequency safety valve
-        if not updates:
+        # Only run frequency safety valve if we have actual signal data (no analysis error)
+        if not has_analysis_error and 'MIN_CONFIDENCE_SWING' not in updates and 'MIN_CONFIDENCE_SCALP' not in updates:
             freq = metrics['signals_per_hour']
             if freq > 4.0:
                 logger.info(f"Frequency too high ({freq}/hr). Raising all thresholds.")
@@ -253,14 +277,52 @@ class AutoOptimizer:
                 updates['MIN_CONFIDENCE_SWING'] = max(MIN_SWING, current_swing - 3)
                 updates['MIN_CONFIDENCE_SCALP'] = max(MIN_SCALP, current_scalp - 3)
 
-        # 5. Apply
-        if updates:
-            for key, val in updates.items():
-                logger.info(f"APPLYING UPDATE: {key} = {val}")
-                self.datastore.set_setting(key, val)
-            self._send_discord_alert(updates, metrics, swing_stats, scalp_stats, hours)
+        # 5. Apply and detect changes
+        changed_keys = []
+        critical_settings = [
+            'MIN_CONFIDENCE_SWING', 'MIN_CONFIDENCE_SCALP', 'MARKET_REGIME',
+            'CIRCUIT_BREAKER_ACTIVE', 'MAX_CRYPTO_SAME_DIRECTION', 'ASSET_BLACKLIST',
+            'MAX_CONFIDENCE_SWING', 'MAX_CONFIDENCE_SCALP', 'SL_BUFFER_PCT_SWING', 'SL_BUFFER_PCT_SCALP'
+        ]
+        
+        for key, val in updates.items():
+            current_val = self.datastore.get_setting(key)
+            if key in critical_settings:
+                # Compare to see if there is an actual change
+                if current_val is None or str(current_val).strip() != str(val).strip():
+                    changed_keys.append(key)
+            
+            logger.info(f"APPLYING UPDATE: {key} = {val}")
+            self.datastore.set_setting(key, str(val))
+            
+        # Determine if we should post to Discord
+        last_post_str = self.datastore.get_setting("LAST_OPTIMIZER_POST_TIME")
+        should_post = False
+        
+        if changed_keys:
+            logger.info(f"Parameter changes detected, triggering Discord alert for keys: {changed_keys}")
+            should_post = True
         else:
-            logger.info("No adjustments needed at this time.")
+            logger.info("No parameter changes detected.")
+            if last_post_str:
+                try:
+                    last_post = datetime.fromisoformat(last_post_str)
+                    elapsed_hours = (datetime.utcnow() - last_post).total_seconds() / 3600.0
+                    if elapsed_hours >= 23.0:
+                        logger.info(f"Heartbeat trigger: {elapsed_hours:.2f} hours since last post. Triggering Discord alert.")
+                        should_post = True
+                    else:
+                        logger.info(f"Only {elapsed_hours:.2f} hours since last post. Skipping Discord post.")
+                except Exception as e:
+                    logger.warning(f"Error parsing LAST_OPTIMIZER_POST_TIME: {e}. Triggering Discord alert.")
+                    should_post = True
+            else:
+                logger.info("No previous post time found. Sending initial heartbeat.")
+                should_post = True
+                
+        if should_post:
+            self._send_discord_alert(updates, metrics, swing_stats, scalp_stats, hours)
+            self.datastore.set_setting("LAST_OPTIMIZER_POST_TIME", datetime.utcnow().isoformat())
 
     # ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -502,36 +564,78 @@ class AutoOptimizer:
             msg += "\n📈 **Market Regime: TRENDING** (Breakout capture widened)\n\n"
         else:
             msg += "\n📊 **Market Regime: RANGING** (Standard filters)\n\n"
+            
         msg += "**⚡ MIN CONFIDENCE THRESHOLDS:**\n"
+        
+        # Get active thresholds from updates or DB/settings fallback
+        swing_conf = updates.get('MIN_CONFIDENCE_SWING')
+        if swing_conf is None:
+            swing_conf = self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING)
+        scalp_conf = updates.get('MIN_CONFIDENCE_SCALP')
+        if scalp_conf is None:
+            scalp_conf = self.datastore.get_setting("MIN_CONFIDENCE_SCALP", settings.MIN_CONFIDENCE_SCALP)
+            
+        msg += f"• **Swing Confidence**: Set to **{swing_conf}**\n"
+        msg += f"• **Scalp Confidence**: Set to **{scalp_conf}**\n"
 
-        for k, v in updates.items():
-            if "MIN_CONFIDENCE" in k:
-                name = k.replace("MIN_CONFIDENCE_", "").title()
-                msg += f"• **{name} Confidence**: Set to **{v}**\n"
-                
-        # Group advanced optimizations
-        advanced_updates = {k: v for k, v in updates.items() if "MIN_CONFIDENCE" not in k}
-        if advanced_updates:
-            msg += "\n**🛡️ ADVANCED SAFETY ENGAGED:**\n"
-            # Drawdown Circuit Breaker
+        # Show active advanced safety rules
+        cb_active = updates.get('CIRCUIT_BREAKER_ACTIVE')
+        if cb_active is None:
             cb_active = self.datastore.get_setting("CIRCUIT_BREAKER_ACTIVE")
+            
+        cap_val = updates.get('MAX_CRYPTO_SAME_DIRECTION')
+        if cap_val is None:
+            cap_val = self.datastore.get_setting("MAX_CRYPTO_SAME_DIRECTION")
+            
+        blacklist = updates.get('ASSET_BLACKLIST')
+        if blacklist is None:
+            blacklist = self.datastore.get_setting("ASSET_BLACKLIST")
+            
+        max_scalp = updates.get('MAX_CONFIDENCE_SCALP')
+        if max_scalp is None:
+            max_scalp = self.datastore.get_setting("MAX_CONFIDENCE_SCALP")
+            
+        sl_scalp = updates.get('SL_BUFFER_PCT_SCALP')
+        if sl_scalp is None:
+            sl_scalp = self.datastore.get_setting("SL_BUFFER_PCT_SCALP")
+            
+        has_safeties = (
+            str(cb_active).lower() == 'true' or
+            cap_val is not None or
+            (blacklist and str(blacklist).strip()) or
+            (max_scalp is not None and float(max_scalp) < 100) or
+            (sl_scalp is not None and float(sl_scalp) > 0.008)
+        )
+        
+        if has_safeties:
+            msg += "\n**🛡️ ADVANCED SAFETY ENGAGED:**\n"
             if str(cb_active).lower() == 'true':
                 msg += "• **🚨 Drawdown Circuit Breaker**: **ACTIVE** (Only Tier A+ setups permitted)\n"
-            # Dynamic Altcoin Correlation Cap
-            if 'MAX_CRYPTO_SAME_DIRECTION' in advanced_updates:
-                cap_val = advanced_updates['MAX_CRYPTO_SAME_DIRECTION']
+            if cap_val is not None:
+                cap_val = int(cap_val)
                 reason = "Alt Decoupling (3 Max)" if cap_val == 3 else ("High Risk Tightening (1 Max)" if cap_val == 1 else "Standard (2 Max)")
                 msg += f"• **Crypto Correlation Cap**: `{cap_val} positions max` ({reason})\n"
-            if 'ASSET_BLACKLIST' in advanced_updates and advanced_updates['ASSET_BLACKLIST']:
-                msg += f"• **Toxic Assets Benched**: `{advanced_updates['ASSET_BLACKLIST']}`\n"
-            if 'MAX_CONFIDENCE_SCALP' in advanced_updates and advanced_updates['MAX_CONFIDENCE_SCALP'] < 100:
+            if blacklist and str(blacklist).strip():
+                msg += f"• **Toxic Assets Benched**: `{blacklist}`\n"
+            if max_scalp is not None and float(max_scalp) < 100:
                 msg += f"• **Max Confidence Cap**: `88%` (Filtering late 'perfect' setups)\n"
-            if 'SL_BUFFER_PCT_SCALP' in advanced_updates and advanced_updates['SL_BUFFER_PCT_SCALP'] > 0.008:
+            if sl_scalp is not None and float(sl_scalp) > 0.008:
                 msg += f"• **Dynamic SL**: Buffers widened for chop protection\n"
 
         notifier.send_message(msg)
 
 
 if __name__ == "__main__":
-    optimizer = AutoOptimizer()
-    optimizer.run_optimization(hours=24)
+    try:
+        optimizer = AutoOptimizer()
+        optimizer.run_optimization(hours=24)
+    except Exception as e:
+        import traceback
+        err_msg = f"❌ CRITICAL ERROR: AutoOptimizer failed with exception:\n{str(e)}\n\n{traceback.format_exc()}"
+        print(err_msg, file=sys.stderr)
+        try:
+            from integrations.discord_notifier import DiscordNotifier
+            DiscordNotifier().send_error_alert(err_msg[:1900])
+        except Exception as de:
+            print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
+        sys.exit(1)
