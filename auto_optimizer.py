@@ -265,17 +265,34 @@ class AutoOptimizer:
         updates['MAX_CRYPTO_SAME_DIRECTION'] = dynamic_cap
 
         # 4. Global frequency safety valve
-        # Only run frequency safety valve if we have actual signal data (no analysis error)
-        if not has_analysis_error and 'MIN_CONFIDENCE_SWING' not in updates and 'MIN_CONFIDENCE_SCALP' not in updates:
+        # Check if we didn't adjust confidence thresholds yet in this run
+        if 'MIN_CONFIDENCE_SWING' not in updates and 'MIN_CONFIDENCE_SCALP' not in updates:
             freq = metrics['signals_per_hour']
-            if freq > 4.0:
-                logger.info(f"Frequency too high ({freq}/hr). Raising all thresholds.")
-                updates['MIN_CONFIDENCE_SWING'] = min(MAX_SWING, current_swing + 2)
-                updates['MIN_CONFIDENCE_SCALP'] = min(MAX_SCALP, current_scalp + 2)
-            elif freq < 0.3:
-                logger.info(f"Frequency critically low ({freq}/hr). Lowering all thresholds (safety valve).")
-                updates['MIN_CONFIDENCE_SWING'] = max(MIN_SWING, current_swing - 3)
-                updates['MIN_CONFIDENCE_SCALP'] = max(MIN_SCALP, current_scalp - 3)
+            
+            # Check if enough time has passed since the last frequency safety valve run
+            last_valve_str = self.datastore.get_setting("LAST_FREQUENCY_VALVE_TIME")
+            should_run_valve = True
+            if last_valve_str:
+                try:
+                    last_valve = datetime.fromisoformat(last_valve_str)
+                    elapsed = (datetime.utcnow() - last_valve).total_seconds() / 3600.0
+                    if elapsed < 23.0:
+                        should_run_valve = False
+                        logger.info(f"Frequency safety valve throttled. Only {elapsed:.2f}h since last run.")
+                except Exception as e:
+                    logger.warning(f"Error parsing LAST_FREQUENCY_VALVE_TIME: {e}")
+            
+            if should_run_valve:
+                if freq > 4.0:
+                    logger.info(f"Frequency too high ({freq}/hr). Raising all thresholds.")
+                    updates['MIN_CONFIDENCE_SWING'] = min(MAX_SWING, current_swing + 2)
+                    updates['MIN_CONFIDENCE_SCALP'] = min(MAX_SCALP, current_scalp + 2)
+                    self.datastore.set_setting("LAST_FREQUENCY_VALVE_TIME", datetime.utcnow().isoformat())
+                elif freq < 0.3:
+                    logger.info(f"Frequency critically low ({freq}/hr). Lowering all thresholds (safety valve).")
+                    updates['MIN_CONFIDENCE_SWING'] = max(MIN_SWING, current_swing - 3)
+                    updates['MIN_CONFIDENCE_SCALP'] = max(MIN_SCALP, current_scalp - 3)
+                    self.datastore.set_setting("LAST_FREQUENCY_VALVE_TIME", datetime.utcnow().isoformat())
 
         # 5. Apply and detect changes
         changed_keys = []
