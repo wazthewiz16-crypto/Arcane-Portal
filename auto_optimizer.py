@@ -114,9 +114,12 @@ class AutoOptimizer:
         swing_stats = self._merge_type_stats(by_type, 'SWING')
         scalp_stats = self._merge_type_stats(by_type, 'SCALP')
 
+        proposed_swing = current_swing
+        proposed_scalp = current_scalp
+
         if opt_swing is not None:
             logger.info(f"Self-Healing: using optimized Swing threshold {opt_swing} (R-maximized)")
-            updates['MIN_CONFIDENCE_SWING'] = float(opt_swing)
+            proposed_swing = float(opt_swing)
         else:
             swing_update = self._decide_threshold(
                 label='SWING', current=current_swing,
@@ -124,11 +127,11 @@ class AutoOptimizer:
                 min_th=MIN_SWING, max_th=MAX_SWING
             )
             if swing_update is not None:
-                updates['MIN_CONFIDENCE_SWING'] = swing_update
+                proposed_swing = swing_update
 
         if opt_scalp is not None:
             logger.info(f"Self-Healing: using optimized Scalp threshold {opt_scalp} (R-maximized)")
-            updates['MIN_CONFIDENCE_SCALP'] = float(opt_scalp)
+            proposed_scalp = float(opt_scalp)
         else:
             scalp_update = self._decide_threshold(
                 label='SCALP', current=current_scalp,
@@ -136,7 +139,7 @@ class AutoOptimizer:
                 min_th=MIN_SCALP, max_th=MAX_SCALP
             )
             if scalp_update is not None:
-                updates['MIN_CONFIDENCE_SCALP'] = scalp_update
+                proposed_scalp = scalp_update
             
         # 3b. Advanced Optimization: Asset Blacklisting
         if not has_analysis_error:
@@ -192,11 +195,9 @@ class AutoOptimizer:
 
         if regime == 'TRENDING':
             updates['BREAKOUT_CAPTURE_PCT'] = 0.01  # 1% beyond zone (was 0.3%)
-            if 'MIN_CONFIDENCE_SWING' not in updates:
-                updates['MIN_CONFIDENCE_SWING'] = max(MIN_SWING, current_swing - 3)
-            if 'MIN_CONFIDENCE_SCALP' not in updates:
-                updates['MIN_CONFIDENCE_SCALP'] = max(MIN_SCALP, current_scalp - 3)
-            logger.info(f"TRENDING regime: widened breakout capture to 1%, lowered thresholds")
+            proposed_swing = max(MIN_SWING, proposed_swing - 3)
+            proposed_scalp = max(MIN_SCALP, proposed_scalp - 3)
+            logger.info(f"TRENDING regime: widened breakout capture to 1%, lowered proposed thresholds: Swing={proposed_swing}, Scalp={proposed_scalp}")
         else:
             updates['BREAKOUT_CAPTURE_PCT'] = 0.003  # Default 0.3%
 
@@ -270,35 +271,47 @@ class AutoOptimizer:
         logger.info(f"Setting dynamic correlated cap to {dynamic_cap} (BTC Vol: {btc_vol})")
         updates['MAX_CRYPTO_SAME_DIRECTION'] = dynamic_cap
 
+        # Low signal frequency cap: prevent threshold increases if freq < 0.3
+        if freq < 0.3:
+            if proposed_swing > current_swing:
+                logger.info(f"Signal frequency is low ({freq:.2f}/hr). Blocking threshold increase: Swing {proposed_swing} -> {current_swing}")
+                proposed_swing = current_swing
+            if proposed_scalp > current_scalp:
+                logger.info(f"Signal frequency is low ({freq:.2f}/hr). Blocking threshold increase: Scalp {proposed_scalp} -> {current_scalp}")
+                proposed_scalp = current_scalp
+
         # 4. Global frequency safety valve
-        # Check if we didn't adjust confidence thresholds yet in this run
-        if 'MIN_CONFIDENCE_SWING' not in updates and 'MIN_CONFIDENCE_SCALP' not in updates:
-            freq = metrics['signals_per_hour']
-            
-            # Check if enough time has passed since the last frequency safety valve run
-            last_valve_str = self.datastore.get_setting("LAST_FREQUENCY_VALVE_TIME")
-            should_run_valve = True
-            if last_valve_str:
-                try:
-                    last_valve = datetime.fromisoformat(last_valve_str)
-                    elapsed = (datetime.utcnow() - last_valve).total_seconds() / 3600.0
-                    if elapsed < 23.0:
-                        should_run_valve = False
-                        logger.info(f"Frequency safety valve throttled. Only {elapsed:.2f}h since last run.")
-                except Exception as e:
-                    logger.warning(f"Error parsing LAST_FREQUENCY_VALVE_TIME: {e}")
-            
-            if should_run_valve:
-                if freq > 4.0:
-                    logger.info(f"Frequency too high ({freq}/hr). Raising all thresholds.")
-                    updates['MIN_CONFIDENCE_SWING'] = min(MAX_SWING, current_swing + 2)
-                    updates['MIN_CONFIDENCE_SCALP'] = min(MAX_SCALP, current_scalp + 2)
-                    self.datastore.set_setting("LAST_FREQUENCY_VALVE_TIME", datetime.utcnow().isoformat())
-                elif freq < 0.3:
-                    logger.info(f"Frequency critically low ({freq}/hr). Lowering all thresholds (safety valve).")
-                    updates['MIN_CONFIDENCE_SWING'] = max(MIN_SWING, current_swing - 3)
-                    updates['MIN_CONFIDENCE_SCALP'] = max(MIN_SCALP, current_scalp - 3)
-                    self.datastore.set_setting("LAST_FREQUENCY_VALVE_TIME", datetime.utcnow().isoformat())
+        last_valve_str = self.datastore.get_setting("LAST_FREQUENCY_VALVE_TIME")
+        should_run_valve = True
+        if last_valve_str:
+            try:
+                last_valve = datetime.fromisoformat(last_valve_str)
+                elapsed = (datetime.utcnow() - last_valve).total_seconds() / 3600.0
+                if elapsed < 23.0:
+                    should_run_valve = False
+                    logger.info(f"Frequency safety valve throttled. Only {elapsed:.2f}h since last run.")
+            except Exception as e:
+                logger.warning(f"Error parsing LAST_FREQUENCY_VALVE_TIME: {e}")
+        
+        if should_run_valve:
+            if freq > 4.0:
+                logger.info(f"Frequency too high ({freq}/hr). Raising proposed thresholds via safety valve.")
+                proposed_swing = min(MAX_SWING, proposed_swing + 2)
+                proposed_scalp = min(MAX_SCALP, proposed_scalp + 2)
+                self.datastore.set_setting("LAST_FREQUENCY_VALVE_TIME", datetime.utcnow().isoformat())
+            elif freq < 0.3:
+                step_down_swing = max(MIN_SWING, current_swing - 3)
+                step_down_scalp = max(MIN_SCALP, current_scalp - 3)
+                
+                # Force proposed thresholds to be at least as low as the safety valve step-down
+                proposed_swing = min(proposed_swing, step_down_swing)
+                proposed_scalp = min(proposed_scalp, step_down_scalp)
+                
+                logger.info(f"Frequency critically low ({freq}/hr). Lowering thresholds via safety valve: Swing={proposed_swing}, Scalp={proposed_scalp}")
+                self.datastore.set_setting("LAST_FREQUENCY_VALVE_TIME", datetime.utcnow().isoformat())
+
+        updates['MIN_CONFIDENCE_SWING'] = proposed_swing
+        updates['MIN_CONFIDENCE_SCALP'] = proposed_scalp
 
         # 5. Apply and detect changes
         changed_keys = []

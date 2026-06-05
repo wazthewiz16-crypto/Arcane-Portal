@@ -244,7 +244,13 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-06-04
+**Latest Update:** 2026-06-05
+
+- **Auto-Optimizer Frequency Safety Valve Override Fix (NEW)**:
+  - **Overriding Baseline:** Refactored threshold determination in `auto_optimizer.py` to calculate threshold values using local variables (`proposed_swing` / `proposed_scalp`) before applying regime adjustments, low frequency blocker limits, and the global safety valve.
+  - **Low Frequency Clamping:** Implemented a check that prevents the 14-day backtester baseline from increasing/overwriting the safety valve's step-downs when signal frequency is critically low (`freq < 0.3`). This guarantees the safety valve successfully decreases thresholds (by -3) and keeps them lowered to restart trade frequency during dry phases.
+
+**Previous Update:** 2026-06-04
 
 - **Dynamic Crypto Correlation Cap Auto-Loosening (NEW)**:
   - **Auto-Loosening Logic:** Added a mechanism to `auto_optimizer.py` that checks the 24-hour signal frequency (`signals_per_hour`). If it drops below `0.3` signals per hour (indicating critically low activity / a dry spell), the cryptocurrency correlation cap (`MAX_CRYPTO_SAME_DIRECTION`) is automatically loosened by `+1` (capped at a maximum of `3` positions).
