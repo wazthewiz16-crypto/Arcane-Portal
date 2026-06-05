@@ -354,11 +354,12 @@ async def run_scraper_and_detect():
         if last_retrain_run != current_retrain_key:
             print(f"\n[STEP 4] Initiating Weekly ML Model Retraining (Saturday first run: {now.strftime('%I:%M %p EST')})...")
             try:
-                from ml_regime import fetch_and_prepare_data, generate_features, train_model
+                from ml_regime import fetch_and_prepare_data, fetch_closed_signals, generate_features, train_model
                 df = fetch_and_prepare_data()
+                signals_df = fetch_closed_signals()
                 feats = generate_features(df)
                 if not feats.empty:
-                    train_model(feats)
+                    train_model(feats, signals_df)
                     datastore.set_setting("LAST_ML_RETRAIN_KEY", current_retrain_key)
                     print(f"[OK] Weekly ML retraining completed successfully and logged for key: {current_retrain_key}")
                 else:

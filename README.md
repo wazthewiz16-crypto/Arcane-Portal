@@ -246,6 +246,13 @@ Arcane-Portal/
 
 **Latest Update:** 2026-06-05
 
+- **Mango-Enriched Weekly ML Retraining & Live Regime Detection (NEW)**:
+  - **Historical Tracking (`mango_scrapes`):** Introduced a historical database logging table `mango_scrapes` (PostgreSQL and SQLite) to save the hourly crawlers' cached dashboard data, bypassing the single-key cache overwrites.
+  - **Upgraded Feature Vectors:** Added 4 macro dashboard features (`mango_market_trend`, `mango_market_volatility`, `mango_badge_trend_ratio`, and `mango_avg_asset_volatility`) to the rolling training feature pool, expanding classification vectors from 4 to 8 variables.
+  - **Robust Fallback Strategy:** Handled missing historical dates prior to deployment by defaulting the dashboard features to neutral values, preserving the training dataset integrity.
+  - **Dynamic Inference Compatibility:** Configured the live regime detector to detect the expected feature shape of the loaded ML model (`model.n_features_in_`), ensuring perfect backward-compatibility with 4-feature legacy models while supporting 8-feature models.
+  - **Worker Crash Fix:** Fixed a critical weekly retrainer execution bug inside `run_signals.py` by adding the missing `signals_df` parameter to prevent TypeError crashes during automatic Saturday runs.
+
 - **Auto-Optimizer Frequency Safety Valve Override Fix (NEW)**:
   - **Overriding Baseline:** Refactored threshold determination in `auto_optimizer.py` to calculate threshold values using local variables (`proposed_swing` / `proposed_scalp`) before applying regime adjustments, low frequency blocker limits, and the global safety valve.
   - **Low Frequency Clamping:** Implemented a check that prevents the 14-day backtester baseline from increasing/overwriting the safety valve's step-downs when signal frequency is critically low (`freq < 0.3`). This guarantees the safety valve successfully decreases thresholds (by -3) and keeps them lowered to restart trade frequency during dry phases.
