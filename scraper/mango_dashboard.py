@@ -512,8 +512,17 @@ class MangoDashboardScraper:
                 if self.datastore:
                     self.datastore.set_setting("MANGO_DASHBOARD_CACHED_DATA", json.dumps(result))
                     logger.info("Persisted cached Mango Dashboard data to the database setting MANGO_DASHBOARD_CACHED_DATA.")
+                    
+                    # Also save historical entry
+                    self.datastore.save_mango_scrapes(
+                        market_trend=final_market_trend,
+                        market_volatility=final_market_volatility,
+                        assets=final_assets,
+                        timestamp=result["updated_at"]
+                    )
+                    logger.info("Persisted historical Mango Dashboard data to mango_scrapes table.")
             except Exception as e:
-                logger.error(f"Failed to persist cached data to DB: {e}")
+                logger.error(f"Failed to persist cached data or historical scrape to DB: {e}")
                 
             # Refresh storage state rolling cookies
             try:

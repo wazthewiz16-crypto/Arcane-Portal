@@ -151,6 +151,21 @@ class MangoDataStore:
                     )
                 """)
 
+                # Mango Scrapes table (Postgres)
+                self._execute_query(conn, """
+                    CREATE TABLE IF NOT EXISTS mango_scrapes (
+                        id SERIAL PRIMARY KEY,
+                        timestamp TEXT NOT NULL UNIQUE,
+                        market_trend TEXT,
+                        market_volatility REAL,
+                        assets_json TEXT NOT NULL
+                    )
+                """)
+                self._execute_query(conn, """
+                    CREATE INDEX IF NOT EXISTS idx_mango_scrapes_timestamp 
+                    ON mango_scrapes(timestamp)
+                """)
+
             else:
                 # SQLite syntax (existing code)
                 self._execute_query(conn, """
@@ -265,6 +280,21 @@ class MangoDataStore:
                     )
                 """)
 
+                # Mango Scrapes table (SQLite)
+                self._execute_query(conn, """
+                    CREATE TABLE IF NOT EXISTS mango_scrapes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL UNIQUE,
+                        market_trend TEXT,
+                        market_volatility REAL,
+                        assets_json TEXT NOT NULL
+                    )
+                """)
+                self._execute_query(conn, """
+                    CREATE INDEX IF NOT EXISTS idx_mango_scrapes_timestamp 
+                    ON mango_scrapes(timestamp)
+                """)
+
     def get_setting(self, key, default_value=None):
         """Get a system setting value"""
         with self.get_connection() as conn:
@@ -360,6 +390,33 @@ class MangoDataStore:
             # SQLite already returns Row objects
             return [dict(row) for row in cursor.fetchall()]
     
+    def save_mango_scrapes(self, market_trend, market_volatility, assets, timestamp=None):
+        """Save a Mango Dashboard scrape result containing assets and global market variables"""
+        import json
+        if timestamp is None:
+            timestamp = datetime.utcnow().isoformat()
+        if not timestamp.endswith('Z') and 'T' in timestamp:
+            if '+' not in timestamp and '-' not in timestamp[10:]:
+                timestamp = timestamp + 'Z'
+                
+        assets_json = json.dumps(assets)
+        with self.get_connection() as conn:
+            if USE_POSTGRES:
+                self._execute_query(conn, """
+                    INSERT INTO mango_scrapes (timestamp, market_trend, market_volatility, assets_json)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (timestamp) DO UPDATE SET 
+                        market_trend = EXCLUDED.market_trend,
+                        market_volatility = EXCLUDED.market_volatility,
+                        assets_json = EXCLUDED.assets_json
+                """, (timestamp, market_trend, market_volatility, assets_json))
+            else:
+                self._execute_query(conn, """
+                    INSERT OR REPLACE INTO mango_scrapes (timestamp, market_trend, market_volatility, assets_json)
+                    VALUES (?, ?, ?, ?)
+                """, (timestamp, market_trend, market_volatility, assets_json))
+        logger.info(f"Saved mango scrape to DB at {timestamp}")
+
     def save_scrape(self, scrape_data):
         """Save a single scrape result"""
         with self.get_connection() as conn:
@@ -575,6 +632,13 @@ class MangoDataStore:
                 """, (scrape_cutoff,))
                 if hasattr(res2, 'rowcount') and res2.rowcount and res2.rowcount > 0:
                     logger.info(f"Cleaned up {res2.rowcount} old scrapes")
+                    
+                # 3. Delete old mango scrapes
+                res3 = self._execute_query(conn, """
+                    DELETE FROM mango_scrapes WHERE timestamp < ?
+                """, (scrape_cutoff,))
+                if hasattr(res3, 'rowcount') and res3.rowcount and res3.rowcount > 0:
+                    logger.info(f"Cleaned up {res3.rowcount} old mango scrapes")
                     
         except Exception as e:
             logger.error(f"Data cleanup error: {e}")

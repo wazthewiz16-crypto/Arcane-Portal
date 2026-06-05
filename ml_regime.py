@@ -113,10 +113,77 @@ def fetch_closed_signals():
     logger.info(f"Fetched {len(resolved_df)} resolved outcome signals out of {len(df)} total signals.")
     return resolved_df
 
+DEFAULT_MANGO_FEATURES = {
+    'mango_market_trend': 0,
+    'mango_market_volatility': 50.0,
+    'mango_badge_trend_ratio': 0.5,
+    'mango_avg_asset_volatility': 50.0
+}
+
+def extract_mango_features(mango_row):
+    import json
+    
+    market_trend_str = str(mango_row.get('market_trend', 'NEUTRAL')).upper()
+    if 'LONG' in market_trend_str or 'BULL' in market_trend_str:
+        mango_market_trend = 1
+    elif 'SHORT' in market_trend_str or 'BEAR' in market_trend_str:
+        mango_market_trend = -1
+    else:
+        mango_market_trend = 0
+        
+    try:
+        mango_market_volatility = float(mango_row.get('market_volatility', 50.0))
+    except (ValueError, TypeError):
+        mango_market_volatility = 50.0
+        
+    assets_json = mango_row.get('assets_json')
+    assets = {}
+    if assets_json:
+        try:
+            assets = json.loads(assets_json)
+        except Exception:
+            pass
+            
+    if assets:
+        active_count = sum(1 for asset in assets.values() if asset.get('trend') in ('LONG', 'SHORT'))
+        total_count = len(assets)
+        mango_badge_trend_ratio = active_count / total_count if total_count > 0 else 0.5
+        
+        vols = [asset.get('volatility', 50.0) for asset in assets.values() if asset.get('volatility') is not None]
+        mango_avg_asset_volatility = sum(vols) / len(vols) if vols else 50.0
+    else:
+        mango_badge_trend_ratio = 0.5
+        mango_avg_asset_volatility = 50.0
+        
+    return {
+        'mango_market_trend': mango_market_trend,
+        'mango_market_volatility': mango_market_volatility,
+        'mango_badge_trend_ratio': mango_badge_trend_ratio,
+        'mango_avg_asset_volatility': mango_avg_asset_volatility
+    }
+
 def generate_features(df):
     logger.info("Generating 4h rolling features from scrape data...")
     if df.empty:
         return pd.DataFrame()
+        
+    # Query mango scrapes from DB
+    datastore = MangoDataStore()
+    with datastore.get_connection() as conn:
+        try:
+            mango_rows = datastore._fetch_query(conn, """
+                SELECT timestamp, market_trend, market_volatility, assets_json
+                FROM mango_scrapes
+                ORDER BY timestamp ASC
+            """)
+        except Exception as e:
+            logger.warning(f"Could not fetch from mango_scrapes table: {e}")
+            mango_rows = []
+            
+    mango_df = pd.DataFrame(mango_rows)
+    if not mango_df.empty:
+        mango_df['timestamp'] = pd.to_datetime(mango_df['timestamp'], utc=True).dt.tz_localize(None)
+        mango_df = mango_df.sort_values('timestamp')
         
     # Find start and end timestamps
     min_time = df['timestamp'].min()
@@ -222,6 +289,16 @@ def generate_features(df):
         re = np.mean(range_ratios) if range_ratios else 1.0
         eq_ratio = eq_expanding / eq_total if eq_total > 0 else 0.5
         
+        # Get mango features
+        mango_feats = DEFAULT_MANGO_FEATURES.copy()
+        if not mango_df.empty:
+            mask = mango_df['timestamp'] <= current_time
+            valid_scrapes = mango_df[mask]
+            if not valid_scrapes.empty:
+                latest_mango = valid_scrapes.iloc[-1]
+                if (current_time - latest_mango['timestamp']) <= timedelta(hours=24):
+                    mango_feats = extract_mango_features(latest_mango)
+        
         features_list.append({
             'timestamp': current_time,
             'zone_escape_ratio': zer,
@@ -229,7 +306,11 @@ def generate_features(df):
             'range_expansion': re,
             'eq_expansion_ratio': eq_ratio,
             'rolling_4h_return': rolling_4h_return,
-            'hour_of_day': current_time.hour
+            'hour_of_day': current_time.hour,
+            'mango_market_trend': mango_feats['mango_market_trend'],
+            'mango_market_volatility': mango_feats['mango_market_volatility'],
+            'mango_badge_trend_ratio': mango_feats['mango_badge_trend_ratio'],
+            'mango_avg_asset_volatility': mango_feats['mango_avg_asset_volatility']
         })
         
         current_time += timedelta(hours=1)
@@ -314,7 +395,10 @@ def train_model(features_df, signals_df):
     train_df = features_df.iloc[:split_idx]
     test_df = features_df.iloc[split_idx:]
     
-    feature_cols = ['zone_escape_ratio', 'direction_alignment', 'range_expansion', 'eq_expansion_ratio']
+    feature_cols = [
+        'zone_escape_ratio', 'direction_alignment', 'range_expansion', 'eq_expansion_ratio',
+        'mango_market_trend', 'mango_market_volatility', 'mango_badge_trend_ratio', 'mango_avg_asset_volatility'
+    ]
     
     X_train = train_df[feature_cols]
     y_train = train_df['label']

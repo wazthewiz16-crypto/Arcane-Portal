@@ -15,9 +15,60 @@ import logging
 from typing import Dict, Optional
 from pathlib import Path
 import joblib
+import pandas as pd
+from datetime import datetime, timedelta
 from detection.datastore import MangoDataStore
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MANGO_FEATURES = {
+    'mango_market_trend': 0,
+    'mango_market_volatility': 50.0,
+    'mango_badge_trend_ratio': 0.5,
+    'mango_avg_asset_volatility': 50.0
+}
+
+def extract_mango_features(mango_row):
+    import json
+    
+    market_trend_str = str(mango_row.get('market_trend', 'NEUTRAL')).upper()
+    if 'LONG' in market_trend_str or 'BULL' in market_trend_str:
+        mango_market_trend = 1
+    elif 'SHORT' in market_trend_str or 'BEAR' in market_trend_str:
+        mango_market_trend = -1
+    else:
+        mango_market_trend = 0
+        
+    try:
+        mango_market_volatility = float(mango_row.get('market_volatility', 50.0))
+    except (ValueError, TypeError):
+        mango_market_volatility = 50.0
+        
+    assets_json = mango_row.get('assets_json')
+    assets = {}
+    if assets_json:
+        try:
+            assets = json.loads(assets_json)
+        except Exception:
+            pass
+            
+    if assets:
+        active_count = sum(1 for asset in assets.values() if asset.get('trend') in ('LONG', 'SHORT'))
+        total_count = len(assets)
+        mango_badge_trend_ratio = active_count / total_count if total_count > 0 else 0.5
+        
+        vols = [asset.get('volatility', 50.0) for asset in assets.values() if asset.get('volatility') is not None]
+        mango_avg_asset_volatility = sum(vols) / len(vols) if vols else 50.0
+    else:
+        mango_badge_trend_ratio = 0.5
+        mango_avg_asset_volatility = 50.0
+        
+    return {
+        'mango_market_trend': mango_market_trend,
+        'mango_market_volatility': mango_market_volatility,
+        'mango_badge_trend_ratio': mango_badge_trend_ratio,
+        'mango_avg_asset_volatility': mango_avg_asset_volatility
+    }
 
 
 class MarketRegimeDetector:
@@ -77,7 +128,9 @@ class MarketRegimeDetector:
                 f"Zone escape: {features['zone_escape_ratio']:.0%}, "
                 f"Direction align: {features['direction_alignment']:.0%}, "
                 f"Range expansion: {features['range_expansion']:.1f}x, "
-                f"EQ expanding: {features['eq_expansion_ratio']:.0%}"
+                f"EQ expanding: {features['eq_expansion_ratio']:.0%}, "
+                f"Mango Trend: {features['mango_market_trend']}, "
+                f"Mango Vol: {features['mango_market_volatility']:.0f}"
             )
 
             return {
@@ -130,6 +183,31 @@ class MarketRegimeDetector:
 
         if len(assets) < self.MIN_ASSETS_REQUIRED:
             return None
+
+        # Fetch latest mango scrape
+        with self.datastore.get_connection() as conn:
+            try:
+                mango_rows = self.datastore._fetch_query(conn, """
+                    SELECT timestamp, market_trend, market_volatility, assets_json
+                    FROM mango_scrapes
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """)
+            except Exception as e:
+                logger.warning(f"Failed to query latest mango_scrapes: {e}")
+                mango_rows = []
+
+        mango_feats = DEFAULT_MANGO_FEATURES.copy()
+        if mango_rows:
+            latest_row = mango_rows[0]
+            try:
+                ts_str = latest_row['timestamp']
+                ts = pd.to_datetime(ts_str, utc=True).tz_localize(None)
+                now_naive = datetime.utcnow()
+                if (now_naive - ts) <= timedelta(hours=24):
+                    mango_feats = extract_mango_features(latest_row)
+            except Exception as e:
+                logger.warning(f"Error parsing latest mango scrape timestamp: {e}")
 
         # --- Feature 1: Zone Escape Ratio ---
         # How many assets have price significantly above/below their entry zone?
@@ -244,6 +322,10 @@ class MarketRegimeDetector:
             'assets_analyzed': zone_total,
             'long_escaped': long_count,
             'short_escaped': short_count,
+            'mango_market_trend': mango_feats['mango_market_trend'],
+            'mango_market_volatility': mango_feats['mango_market_volatility'],
+            'mango_badge_trend_ratio': mango_feats['mango_badge_trend_ratio'],
+            'mango_avg_asset_volatility': mango_feats['mango_avg_asset_volatility']
         }
 
     def _classify(self, features: Dict) -> tuple:
@@ -290,12 +372,24 @@ class MarketRegimeDetector:
         # If we have an ML model, use it to classify!
         if self.model is not None:
             import pandas as pd
-            X = pd.DataFrame([{
-                'zone_escape_ratio': features['zone_escape_ratio'],
-                'direction_alignment': features['direction_alignment'],
-                'range_expansion': features['range_expansion'],
-                'eq_expansion_ratio': features['eq_expansion_ratio']
-            }])
+            if hasattr(self.model, 'n_features_in_') and self.model.n_features_in_ == 4:
+                X = pd.DataFrame([{
+                    'zone_escape_ratio': features['zone_escape_ratio'],
+                    'direction_alignment': features['direction_alignment'],
+                    'range_expansion': features['range_expansion'],
+                    'eq_expansion_ratio': features['eq_expansion_ratio']
+                }])
+            else:
+                X = pd.DataFrame([{
+                    'zone_escape_ratio': features['zone_escape_ratio'],
+                    'direction_alignment': features['direction_alignment'],
+                    'range_expansion': features['range_expansion'],
+                    'eq_expansion_ratio': features['eq_expansion_ratio'],
+                    'mango_market_trend': features['mango_market_trend'],
+                    'mango_market_volatility': features['mango_market_volatility'],
+                    'mango_badge_trend_ratio': features['mango_badge_trend_ratio'],
+                    'mango_avg_asset_volatility': features['mango_avg_asset_volatility']
+                }])
             
             try:
                 pred = self.model.predict(X)[0]
