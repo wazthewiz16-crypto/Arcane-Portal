@@ -70,7 +70,7 @@ class SignalAnalyzer:
             'period_hours': hours,
             'total_signals': len(recent_signals),
             'timeframe': cutoff_time.strftime('%Y-%m-%d %H:%M:%S'),
-            'metrics': self._calculate_metrics(recent_signals),
+            'metrics': self._calculate_metrics(recent_signals, period_hours=hours),
             'breakdowns': self._calculate_breakdowns(recent_signals),
             'recommendations': []
         }

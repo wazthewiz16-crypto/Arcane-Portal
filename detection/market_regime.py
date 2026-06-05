@@ -301,10 +301,17 @@ class MarketRegimeDetector:
                 pred = self.model.predict(X)[0]
                 prob = max(self.model.predict_proba(X)[0]) * 100
                 
-                regime = 'TRENDING' if pred == 1 else 'RANGING'
-                
-                # We overwrite the heuristic score with ML probability
-                score = prob
+                # If ML model confidence is low (< 60%), fall back to robust heuristics
+                if prob < 60.0:
+                    logger.info(f"ML regime prediction has low confidence ({prob:.1f}%). Falling back to heuristics (score={score}).")
+                    if score >= 55:
+                        regime = 'TRENDING'
+                    else:
+                        regime = 'RANGING'
+                else:
+                    regime = 'TRENDING' if pred == 1 else 'RANGING'
+                    # We overwrite the heuristic score with ML probability
+                    score = prob
             except Exception as e:
                 logger.error(f"ML prediction failed, falling back to heuristics: {e}")
                 regime = 'TRENDING' if score >= 55 else 'RANGING'
