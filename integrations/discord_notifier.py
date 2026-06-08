@@ -575,6 +575,86 @@ class DiscordNotifier:
             logger.error(f"Failed to send ML retrain alert: {e}")
             return False
 
+    def send_daily_regime_alert(self, results: dict) -> bool:
+        """Send a daily crypto regime prediction or verification summary"""
+        if not self.webhook_url:
+            return False
+            
+        try:
+            decision = results.get('decision', 'TRENDING')
+            time_of_day = results.get('time_of_day', 'Morning Check')
+            regime = results.get('regime', 'TRENDING')
+            confidence = results.get('confidence', 50.0)
+            reason = results.get('reason', '')
+            date_str = results.get('date', '')
+            
+            # Select color based on decision
+            if decision == 'TRENDING':
+                color = 0x2ECC71  # Green
+                status_text = "🟢 TRENDING (Swings & Scalps Enabled)"
+            elif decision == 'RANGING_SCALPS_ONLY':
+                color = 0xF1C40F  # Yellow
+                status_text = "🟡 RANGING (Quick Scalps Only)"
+            else:
+                color = 0xE74C3C  # Red
+                status_text = "🔴 RANGING (All Trading Halted)"
+                
+            desc = (
+                f"**Daily Check Stage:** `{time_of_day}`\n"
+                f"**Detected Market State:** `{regime}` (Confidence: {confidence:.0f}%)\n"
+                f"**System Target Action:** **{status_text}**\n\n"
+                f"**Rationale:**\n{reason}\n"
+            )
+            
+            # Formulate metrics table
+            metrics = results.get('metrics', {})
+            if metrics:
+                desc += "\n**📊 Underlying Micro Metrics:**\n"
+                desc += f"• Zone Escape Ratio: `{metrics.get('zone_escape_ratio', 0.0):.0%}`\n"
+                desc += f"• Directional Alignment: `{metrics.get('direction_alignment', 0.0):.0%}`\n"
+                desc += f"• Range Expansion: `{metrics.get('range_expansion', 1.0):.2f}x`\n"
+                desc += f"• Equilibrium Expansion: `{metrics.get('eq_expansion_ratio', 0.5):.0%}`\n"
+            
+            # Mango Dashboard metrics
+            desc += "\n**🥭 Mango Dashboard Indicators:**\n"
+            trend_val = metrics.get('mango_market_trend', 0)
+            trend_str = "LONG" if trend_val == 1 else ("SHORT" if trend_val == -1 else "NEUTRAL")
+            desc += f"• Global Market Trend: `{trend_str}`\n"
+            desc += f"• Global Market Volatility: `{results.get('btc_vol', 50.0):.0f}`\n"
+            desc += f"• Active Badge Ratio: `{metrics.get('mango_badge_trend_ratio', 0.5):.0%}`\n"
+            desc += f"• Watchlist Avg Volatility: `{metrics.get('mango_avg_asset_volatility', 50.0):.0f}`\n"
+            
+            if results.get('avg_daily_range') is not None:
+                desc += f"\n**📈 Actual Intraday Return Range (Watchlist Average):** `{results['avg_daily_range']:.2%}`\n"
+                
+            if results.get('bbwp_squeeze'):
+                desc += "\n**⚠️ VOLATILITY SQUEEZE WARNING:**\n" \
+                        "• Bitcoin BBWP indicates extreme compression (< 25). A massive volatility breakout is imminent. Watch for trending breakout opportunities.\n"
+                        
+            if results.get('cb_active'):
+                desc += "\n**🛡️ DRAWDOWN SAFEGUARD:**\n" \
+                        "• Drawdown circuit breaker is active. System is operating in low-risk mode.\n"
+            
+            embed = {
+                "title": f"🧠 Daily Crypto Regime Check — {date_str}",
+                "description": desc,
+                "color": color,
+                "footer": {
+                    "text": "Arcane Portal V2 • Daily Prediction Engine"
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            response = requests.post(
+                self.webhook_url,
+                json={"embeds": [embed]},
+                timeout=10
+            )
+            return response.status_code in [200, 204]
+        except Exception as e:
+            logger.error(f"Failed to send daily regime alert: {e}")
+            return False
+
 def send_signal_to_discord(signal: Dict) -> bool:
     """
     Convenience function to send a signal alert

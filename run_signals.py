@@ -342,6 +342,29 @@ async def run_scraper_and_detect():
                 except Exception as de:
                     print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
             
+    # Step 3b: Daily Regime Checks (Morning check at 6 AM EST, Afternoon check at 1 PM EST)
+    target_regime_hours = [6, 13]
+    if now.hour in target_regime_hours:
+        check_type = "morning" if now.hour == 6 else "afternoon"
+        current_regime_key = f"{now.strftime('%Y-%m-%d')}-{check_type}"
+        last_regime_run = datastore.get_setting(f"LAST_DAILY_REGIME_{check_type.upper()}_KEY")
+        
+        if last_regime_run != current_regime_key:
+            print(f"\n[STEP 3b] Running Daily Regime Check ({check_type} prediction/verification EST)...")
+            try:
+                from detection.daily_regime import execute_daily_regime_check
+                execute_daily_regime_check(datastore, is_afternoon=(check_type == "afternoon"))
+                datastore.set_setting(f"LAST_DAILY_REGIME_{check_type.upper()}_KEY", current_regime_key)
+                print(f"[OK] Daily Regime Check ({check_type}) run successfully logged.")
+            except Exception as e:
+                import traceback
+                err_msg = f"⚠️ [STEP 3b] Error running Daily Regime Check ({check_type}): {e}\n\n{traceback.format_exc()}"
+                print(err_msg, file=sys.stderr)
+                try:
+                    notifier.send_error_alert(err_msg[:1900])
+                except Exception as de:
+                    print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
+
     # Step 4: Weekly ML Model Retraining
     # Run every Saturday (weekday 5) on the very first cron run of the day
     # (TradFi markets closed, lowest system usage).

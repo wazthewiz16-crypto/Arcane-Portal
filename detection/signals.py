@@ -94,6 +94,13 @@ class MangoSignalDetector:
         active_crypto_shorts = sum(1 for s in active_sigs if s.get('asset_type') == 'crypto' and 'SHORT' in s['signal_type'])
         # ────────────────────────────────────────────────────────────────────
 
+        # ── Daily Regime Decision Check ──
+        daily_regime = self.datastore.get_setting("DAILY_REGIME_DECISION", "TRENDING")
+        if daily_regime == "RANGING_NO_TRADE":
+            logger.info("🚫 DAILY_REGIME_DECISION is RANGING_NO_TRADE. Skipping all signals for today.")
+            return []
+        # ──────────────────────────────────
+
         for name, timeframes in assets_data.items():
             if name.upper() in blacklist:
                 logger.info(f"Skipping {name} — temporarily blacklisted by auto-optimizer.")
@@ -104,34 +111,37 @@ class MangoSignalDetector:
                 continue
 
             # Swing signals (HTF -> LTF)
-            swing_signal = self._detect_swing_signal(name, timeframes, sl_buffer_swing)
-            if swing_signal and min_swing <= swing_signal['confidence'] <= max_swing:
-                # Apply BTC macro context adjustment for crypto altcoins
-                swing_signal = self._apply_btc_context_to_altcoin(name, swing_signal, btc_context)
-                if swing_signal is None:
-                    continue  # Blocked by BTC macro context
-                # ── Correlated positions cap check ──
-                is_long_signal = 'LONG' in swing_signal['signal_type']
-                if swing_signal.get('asset_type') == 'crypto':
-                    if is_long_signal and active_crypto_longs >= MAX_CRYPTO_SAME_DIRECTION:
-                        logger.info(f"🚫 Correlated cap: skipping {name} LONG (already {active_crypto_longs} active crypto longs)")
-                        continue
-                    if not is_long_signal and active_crypto_shorts >= MAX_CRYPTO_SAME_DIRECTION:
-                        logger.info(f"🚫 Correlated cap: skipping {name} SHORT (already {active_crypto_shorts} active crypto shorts)")
-                        continue
-                direction = 'LONG' if is_long_signal else 'SHORT'
-                key = (name, 'SWING', direction)
-                if key not in seen_this_run:
-                    swing_signal = self._validate_mango_confluence(name, swing_signal)
-                    if swing_signal:
-                        seen_this_run.add(key)
-                        signals.append(swing_signal)
-                        # Update running count so subsequent assets in the same batch respect the cap
-                        if swing_signal.get('asset_type') == 'crypto':
-                            if is_long_signal: active_crypto_longs += 1
-                            else:              active_crypto_shorts += 1
-                else:
-                    logger.debug(f"Dedup: suppressed duplicate {swing_signal['signal_type']} for {name} (already queued this run)")
+            if daily_regime == "RANGING_SCALPS_ONLY":
+                logger.info(f"DAILY_REGIME_DECISION is RANGING_SCALPS_ONLY. Skipping Swing signal check for {name}.")
+            else:
+                swing_signal = self._detect_swing_signal(name, timeframes, sl_buffer_swing)
+                if swing_signal and min_swing <= swing_signal['confidence'] <= max_swing:
+                    # Apply BTC macro context adjustment for crypto altcoins
+                    swing_signal = self._apply_btc_context_to_altcoin(name, swing_signal, btc_context)
+                    if swing_signal is None:
+                        continue  # Blocked by BTC macro context
+                    # ── Correlated positions cap check ──
+                    is_long_signal = 'LONG' in swing_signal['signal_type']
+                    if swing_signal.get('asset_type') == 'crypto':
+                        if is_long_signal and active_crypto_longs >= MAX_CRYPTO_SAME_DIRECTION:
+                            logger.info(f"🚫 Correlated cap: skipping {name} LONG (already {active_crypto_longs} active crypto longs)")
+                            continue
+                        if not is_long_signal and active_crypto_shorts >= MAX_CRYPTO_SAME_DIRECTION:
+                            logger.info(f"🚫 Correlated cap: skipping {name} SHORT (already {active_crypto_shorts} active crypto shorts)")
+                            continue
+                    direction = 'LONG' if is_long_signal else 'SHORT'
+                    key = (name, 'SWING', direction)
+                    if key not in seen_this_run:
+                        swing_signal = self._validate_mango_confluence(name, swing_signal)
+                        if swing_signal:
+                            seen_this_run.add(key)
+                            signals.append(swing_signal)
+                            # Update running count so subsequent assets in the same batch respect the cap
+                            if swing_signal.get('asset_type') == 'crypto':
+                                if is_long_signal: active_crypto_longs += 1
+                                else:              active_crypto_shorts += 1
+                    else:
+                        logger.debug(f"Dedup: suppressed duplicate {swing_signal['signal_type']} for {name} (already queued this run)")
             
             # Scalp signals (scalp_htf -> scalp_ltf)
             scalp_signal = self._detect_scalp_signal(name, timeframes, sl_buffer_scalp)
