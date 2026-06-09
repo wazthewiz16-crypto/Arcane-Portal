@@ -352,12 +352,13 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
         # AFTERNOON VERIFICATION (1:00 PM EST)
         morning_pred = datastore.get_setting("DAILY_REGIME_MORNING_PRED", "TRENDING")
         
-        # Query scrapes since 5:00 AM EST today
+        # 1. Query scrapes since 5:00 AM EST today
         today_5am_est = est.localize(datetime.combine(now_est.date(), time(5, 0)))
         today_5am_utc = today_5am_est.astimezone(pytz.utc)
         cutoff_iso = today_5am_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
         
         avg_daily_range = 0.0
+        scrapes = []
         try:
             with datastore.get_connection() as conn:
                 scrapes = datastore._fetch_query(conn, """
@@ -392,18 +393,163 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
                     avg_daily_range = float(np.mean(ranges))
         except Exception as e:
             logger.warning(f"Error calculating intraday actual ranges: {e}")
+
+        # 2. Query 7-day rolling daily range to calculate dynamic thresholds
+        rolling_avg_range = 0.025 # Default fallback (2.5%)
+        try:
+            cutoff_7d_utc = datetime.now(pytz.utc) - timedelta(days=7)
+            cutoff_7d_iso = cutoff_7d_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+            with datastore.get_connection() as conn:
+                scrapes_7d = datastore._fetch_query(conn, """
+                    SELECT name, close, high, low, timestamp
+                    FROM scrapes
+                    WHERE timestamp >= ?
+                      AND timeframe = '1h'
+                """, (cutoff_7d_iso,))
             
+            if scrapes_7d:
+                day_groups = {}
+                for s in scrapes_7d:
+                    name = s['name']
+                    if name.upper() in ('BTCD', 'CRYPTOCAP:BTC.D'):
+                        continue
+                    date_str = s['timestamp'][:10]
+                    key = (name, date_str)
+                    if key not in day_groups:
+                        day_groups[key] = {'highs': [], 'lows': []}
+                    if s.get('high') is not None: day_groups[key]['highs'].append(float(s['high']))
+                    if s.get('low') is not None: day_groups[key]['lows'].append(float(s['low']))
+                
+                daily_ranges = []
+                for key, data in day_groups.items():
+                    if data['highs'] and data['lows']:
+                        max_h = max(data['highs'])
+                        min_l = min(data['lows'])
+                        if min_l > 0:
+                            daily_ranges.append((max_h - min_l) / min_l)
+                if daily_ranges:
+                    rolling_avg_range = float(np.mean(daily_ranges))
+        except Exception as e:
+            logger.warning(f"Error calculating rolling daily range: {e}")
+
+        # Scale thresholds dynamically with safeguards
+        trending_threshold = max(0.015, min(0.04, 0.8 * rolling_avg_range))
+        ranging_threshold = max(0.008, min(0.02, 0.4 * rolling_avg_range))
+
+        # 3. Calculate morning session movers and directional bias (6 AM to 1 PM EST)
+        session_top_gainers = []
+        session_top_losers = []
+        net_session_return = 0.0
+        try:
+            today_6am_est = est.localize(datetime.combine(now_est.date(), time(6, 0)))
+            today_6am_utc = today_6am_est.astimezone(pytz.utc)
+            today_1pm_est = est.localize(datetime.combine(now_est.date(), time(13, 0)))
+            today_1pm_utc = today_1pm_est.astimezone(pytz.utc)
+
+            session_6am = {}
+            session_1pm = {}
+            for s in scrapes:
+                name = s['name']
+                if name.upper() in ('BTCD', 'CRYPTOCAP:BTC.D'):
+                    continue
+                close = s['close']
+                if close is None:
+                    continue
+                close = float(close)
+                
+                try:
+                    ts_str = s['timestamp']
+                    if ts_str.endswith('Z'):
+                        dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                    else:
+                        dt = datetime.fromisoformat(ts_str)
+                        if dt.tzinfo is None:
+                            dt = pytz.utc.localize(dt)
+                        else:
+                            dt = dt.astimezone(pytz.utc)
+                except Exception:
+                    continue
+                    
+                diff_6am = abs((dt - today_6am_utc).total_seconds())
+                diff_1pm = abs((dt - today_1pm_utc).total_seconds())
+                
+                if name not in session_6am or diff_6am < session_6am[name]['diff']:
+                    session_6am[name] = {'close': close, 'timestamp': ts_str, 'diff': diff_6am}
+                if name not in session_1pm or diff_1pm < session_1pm[name]['diff']:
+                    session_1pm[name] = {'close': close, 'timestamp': ts_str, 'diff': diff_1pm}
+
+            session_changes = []
+            for name in session_6am:
+                if name in session_1pm:
+                    p_close = session_6am[name]['close']
+                    c_close = session_1pm[name]['close']
+                    if p_close > 0:
+                        change = (c_close - p_close) / p_close
+                        session_changes.append({
+                            'name': name,
+                            'prev_price': p_close,
+                            'curr_price': c_close,
+                            'change': change
+                        })
+
+            session_changes.sort(key=lambda x: x['change'], reverse=True)
+            session_gainers = [x for x in session_changes if x['change'] > 0]
+            session_losers = [x for x in session_changes if x['change'] < 0]
+            session_losers.sort(key=lambda x: x['change'])
+
+            session_top_gainers = session_gainers[:3]
+            session_top_losers = session_losers[:3]
+
+            crypto_watchlist = {"BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "LINK", "ARB", "AVAX", "ADA", "HYPE", "TRX", "INJ", "ONDO", "NEAR", "PAXG"}
+            crypto_changes = [x['change'] for x in session_changes if x['name'].upper() in crypto_watchlist]
+            net_session_return = float(np.mean(crypto_changes)) if crypto_changes else 0.0
+        except Exception as e:
+            logger.warning(f"Error calculating morning session changes: {e}")
+
+        # 4. Query active signals feedback loop (realized PnL & stopped count since 6 AM today)
+        today_signals_count = 0
+        realized_pnl = 0.0
+        stopped_out_count = 0
+        safety_override_triggered = False
+        try:
+            today_6am_est = est.localize(datetime.combine(now_est.date(), time(6, 0)))
+            today_6am_utc = today_6am_est.astimezone(pytz.utc)
+            today_6am_iso = today_6am_utc.isoformat()
+            
+            with datastore.get_connection() as conn:
+                today_signals = datastore._fetch_query(conn, """
+                    SELECT asset_name, signal_type, entry_price, status, rr_ratio, entry_time
+                    FROM signals
+                    WHERE entry_time >= ?
+                """, (today_6am_iso,))
+            
+            if today_signals:
+                today_signals_count = len(today_signals)
+                for sig in today_signals:
+                    status = sig['status'].upper()
+                    rr = float(sig.get('rr_ratio') or (2.75 if 'SWING' in sig['signal_type'] else 1.75))
+                    if status == 'TP_HIT':
+                        realized_pnl += rr
+                    elif status == 'SL_HIT':
+                        realized_pnl -= 1.0
+                        stopped_out_count += 1
+                        
+                if stopped_out_count >= 3 or realized_pnl <= -2.0:
+                    safety_override_triggered = True
+        except Exception as e:
+            logger.warning(f"Error checking active signals feedback loop: {e}")
+
         # Verification Logic
         if cb_active:
             decision = 'RANGING_SCALPS_ONLY'
             reason = "Afternoon check: Circuit Breaker is active. Maintaining standard safety limits (RANGING_SCALPS_ONLY)."
-        elif avg_daily_range > 0.025 or regime == 'TRENDING':
+        elif avg_daily_range > trending_threshold or regime == 'TRENDING':
             decision = 'TRENDING'
             if morning_pred == 'TRENDING':
                 reason = f"Trending day confirmed (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Continuing swing/scalp trading."
             else:
                 reason = f"Regime deviation! Market broke out to TRENDING (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Upgrading decision from {morning_pred} to TRENDING. Swing trading enabled."
-        elif avg_daily_range < 0.012 or regime == 'RANGING':
+        elif avg_daily_range < ranging_threshold or regime == 'RANGING':
             if morning_pred == 'TRENDING':
                 if confidence >= 85.0:
                     decision = 'RANGING_NO_TRADE'
@@ -419,6 +565,11 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
             decision = morning_pred
             reason = f"Market range within expected limits (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Maintaining {morning_pred} settings."
             
+        # Apply safety override if active trades are bleeding
+        if safety_override_triggered and decision == 'TRENDING':
+            decision = 'RANGING_SCALPS_ONLY'
+            reason = f"Safety override triggered! Today's trades are bleeding (Stopped: {stopped_out_count}, realized PnL: {realized_pnl:.2f}R). Downgrading to RANGING_SCALPS_ONLY to protect capital."
+
         # Save decision
         datastore.set_setting("DAILY_REGIME_DECISION", decision)
         
@@ -440,7 +591,20 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
             'btc_vol': btc_vol,
             'cb_active': cb_active,
             'avg_daily_range': avg_daily_range,
-            'metrics': features
+            'metrics': features,
+            
+            # New metrics
+            'rolling_avg_range': rolling_avg_range,
+            'trending_threshold': trending_threshold,
+            'ranging_threshold': ranging_threshold,
+            'net_session_return': net_session_return,
+            'session_gainers': session_top_gainers,
+            'session_losers': session_top_losers,
+            'today_signals_count': today_signals_count,
+            'realized_pnl': realized_pnl,
+            'stopped_out_count': stopped_out_count,
+            'safety_override_triggered': safety_override_triggered,
+            'morning_pred': morning_pred
         }
         notifier.send_daily_regime_alert(results)
         

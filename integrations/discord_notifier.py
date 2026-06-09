@@ -630,6 +630,44 @@ class DiscordNotifier:
                         desc += f"   • **{l['name']}**: `{l['change']:.1%}` (${l['prev_price']:.{dec}f} → ${l['curr_price']:.{dec}f})\n"
                 else:
                     desc += "   • *No overnight losers found.*\n"
+            else:
+                desc += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                desc += f"**🔄 Regime Transition:** `{results.get('morning_pred', 'N/A')}` ➔ **`{decision}`**\n"
+                
+                # Dynamic Thresholds
+                desc += "\n**📈 Volatility Thresholds:**\n"
+                desc += f"• 7-Day Rolling Daily Range: `{results.get('rolling_avg_range', 0.025):.2%}`\n"
+                desc += f"• Trending Breakout Threshold: `{results.get('trending_threshold', 0.025):.2%}` (0.8x)\n"
+                desc += f"• Ranging Consolidation Threshold: `{results.get('ranging_threshold', 0.012):.2%}` (0.4x)\n"
+                desc += f"• Intraday Actual Range Today: `{results.get('avg_daily_range', 0.0):.2%}`\n"
+                
+                # Morning Session Return Direction
+                net_ret = results.get('net_session_return', 0.0)
+                bias_lbl = "Bullish Bias" if net_ret > 0 else ("Bearish Bias" if net_ret < 0 else "Neutral Bias")
+                sign = "+" if net_ret > 0 else ""
+                desc += f"\n**📊 Morning Session Return (6 AM - 1 PM EST):**\n"
+                desc += f"• Watchlist Net Move: `{sign}{net_ret:.2%}` ({bias_lbl})\n"
+                
+                # Session Gainers/Losers
+                gainers = results.get('session_gainers', [])
+                if gainers:
+                    g_strs = [f"**{g['name']}** (+{g['change']:.1%})" for g in gainers]
+                    desc += f"• Top Session Gainers: {', '.join(g_strs)}\n"
+                losers = results.get('session_losers', [])
+                if losers:
+                    l_strs = [f"**{l['name']}** ({l['change']:.1%})" for l in losers]
+                    desc += f"• Top Session Losers: {', '.join(l_strs)}\n"
+                
+                # Active Signals Feedback
+                desc += f"\n**⚡ Today's Signals Recap:**\n"
+                desc += f"• Morning Signals Triggered: `{results.get('today_signals_count', 0)}`\n"
+                pnl = results.get('realized_pnl', 0.0)
+                pnl_sign = "+" if pnl > 0 else ""
+                desc += f"• Realized PnL today: `{pnl_sign}{pnl:.2f}R`\n"
+                desc += f"• Stopped Out count: `{results.get('stopped_out_count', 0)}`\n"
+                
+                if results.get('safety_override_triggered'):
+                    desc += "• **⚠️ SAFETY OVERRIDE ACTIVE:** Swings disabled due to morning losses.\n"
             
             # Formulate metrics table
             metrics = results.get('metrics', {})
@@ -669,7 +707,7 @@ class DiscordNotifier:
                 cap = "1 position max (scalps only)" if decision == 'RANGING_SCALPS_ONLY' else ("0 positions (all halted)" if decision == 'RANGING_NO_TRADE' else "2 positions max (standard)")
                 desc += f"• Altcoin Correlation Cap: `{cap}`\n"
             
-            title = f"🧠 Morning Trading Brief & Regime Prediction — {date_str}" if is_morning else f"🧠 Daily Crypto Regime Check — {date_str}"
+            title = f"🧠 Morning Trading Brief & Regime Prediction — {date_str}" if is_morning else f"🔍 Afternoon Regime Verification — {date_str}"
             
             embed = {
                 "title": title,
