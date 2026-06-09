@@ -244,7 +244,15 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-06-05
+**Latest Update:** 2026-06-09
+
+- **Morning Trading Brief & Signal Frequency Optimizations (NEW)**:
+  - 🧠 **Discord Morning Brief:** Transformed the 6:00 AM EST daily regime check into a comprehensive Morning Trading Brief. Displays overnight gainers and losers (comparing yesterday's 11:00 PM EST price scrapes to today's 6:00 AM EST scrapes), watchlist sentiment bias counts (LONG/SHORT/NEUTRAL badges parsed from the Mango Dashboard cache), BTC Dominance Cycle status, and altcoin correlation caps in a beautifully styled, color-coded Discord embed.
+  - 🚦 **Regime Halt Confidence Tuning:** Raised the `RANGING_NO_TRADE` confidence threshold from `70.0%` to `85.0%` in both morning and afternoon checks. This prevents halting all signals on moderately ranging days (confidence < 85%), transitioning instead to `RANGING_SCALPS_ONLY` where scalp trading remains active.
+  - ⚡ **Loosened Scalp Macro Alignment:** Loosened the daily trend Grandmaster Filter for scalps in `detection/signals.py` to allow `NEUTRAL` Daily trend states. This allows scalp signals to fire during consolidation ranges where the daily trend is neutral, increasing signal frequency.
+  - ⚙️ **Auto-Optimizer Floor & Safety Valve Tweak:** Lowered confidence floor limits to `55` for swing and `60` for scalp trades, and reduced safety valve throttle duration from 23 hours to 12 hours in `auto_optimizer.py` to allow faster adaptive stepping down when signals dry up.
+
+**Previous Update:** 2026-06-05
 
 - **Mango-Enriched Weekly ML Retraining & Live Regime Detection (NEW)**:
   - **Historical Tracking (`mango_scrapes`):** Introduced a historical database logging table `mango_scrapes` (PostgreSQL and SQLite) to save the hourly crawlers' cached dashboard data, bypassing the single-key cache overwrites.
