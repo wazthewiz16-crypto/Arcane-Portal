@@ -711,9 +711,9 @@ class MangoSignalDetector:
             if daily_data:
                 daily_dir = self._get_htf_direction(daily_data)
                 
-                # Strict: Daily must match HTF direction (LONG/SHORT)
-                # If Daily is Neutral or Opposite, we skip.
-                if daily_dir != htf_direction:
+                # Loose: Scalps must never fight the Daily trend.
+                # NEUTRAL is OK, but explicitly OPPOSITE is forbidden.
+                if daily_dir and daily_dir != 'NEUTRAL' and daily_dir != htf_direction:
                     # logger.debug(f"Skipping scalp for {name}: Daily {daily_dir} vs HTF {htf_direction}")
                     continue
             # ---------------------------------------------

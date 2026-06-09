@@ -110,7 +110,7 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
             decision = 'TRENDING'
             reason = f"Trending day predicted with {confidence:.0f}% confidence. All swing & scalp trade signals enabled."
         else: # RANGING
-            if confidence >= 70.0:
+            if confidence >= 85.0:
                 decision = 'RANGING_NO_TRADE'
                 reason = f"Highly choppy ranging day predicted ({confidence:.0f}% confidence). Halting all trade signals today to protect capital."
             else:
@@ -405,7 +405,7 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
                 reason = f"Regime deviation! Market broke out to TRENDING (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Upgrading decision from {morning_pred} to TRENDING. Swing trading enabled."
         elif avg_daily_range < 0.012 or regime == 'RANGING':
             if morning_pred == 'TRENDING':
-                if confidence >= 70.0:
+                if confidence >= 85.0:
                     decision = 'RANGING_NO_TRADE'
                     reason = f"Regime deviation! Market is flat/ranging (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Downgrading from TRENDING to RANGING_NO_TRADE. Halting new positions."
                 else:

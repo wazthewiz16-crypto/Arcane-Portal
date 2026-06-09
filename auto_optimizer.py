@@ -40,8 +40,8 @@ logger = logging.getLogger("AutoOptimizer")
 # ─── Hard caps ───────────────────────────────────────────────────────────────
 MAX_SWING = 85   # Confidence formula rarely exceeds 92, this is a safe ceiling
 MAX_SCALP = 88
-MIN_SWING = 60   # Never go below these — too noisy below here
-MIN_SCALP = 65
+MIN_SWING = 55   # Never go below these — too noisy below here
+MIN_SCALP = 60
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -287,7 +287,7 @@ class AutoOptimizer:
             try:
                 last_valve = datetime.fromisoformat(last_valve_str)
                 elapsed = (datetime.utcnow() - last_valve).total_seconds() / 3600.0
-                if elapsed < 23.0:
+                if elapsed < 12.0:
                     should_run_valve = False
                     logger.info(f"Frequency safety valve throttled. Only {elapsed:.2f}h since last run.")
             except Exception as e:
@@ -468,8 +468,8 @@ class AutoOptimizer:
                 logger.info(f"Optimal {label} threshold found: {best_threshold} (Net R: {best_net_r:+.2f}R, Win Rate: {best_wr:.1%})")
             return best_threshold
             
-        opt_swing = optimize_subset(swings, 60, 85, 'SWING')
-        opt_scalp = optimize_subset(scalps, 65, 88, 'SCALP')
+        opt_swing = optimize_subset(swings, 55, 85, 'SWING')
+        opt_scalp = optimize_subset(scalps, 60, 88, 'SCALP')
         
         return opt_swing, opt_scalp
 
