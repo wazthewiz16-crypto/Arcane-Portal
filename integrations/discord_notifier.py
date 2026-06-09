@@ -599,12 +599,37 @@ class DiscordNotifier:
                 color = 0xE74C3C  # Red
                 status_text = "🔴 RANGING (All Trading Halted)"
                 
+            is_morning = "Morning" in time_of_day
+            
             desc = (
                 f"**Daily Check Stage:** `{time_of_day}`\n"
                 f"**Detected Market State:** `{regime}` (Confidence: {confidence:.0f}%)\n"
                 f"**System Target Action:** **{status_text}**\n\n"
                 f"**Rationale:**\n{reason}\n"
             )
+            
+            # ── Overnight moves (Morning Brief Only) ──
+            if is_morning:
+                desc += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                desc += "**🚀 Overnight Gainers (11 PM - 6 AM EST):**\n"
+                gainers = results.get('overnight_gainers', [])
+                if gainers:
+                    for g in gainers:
+                        p = g['prev_price']
+                        dec = 4 if p < 1 else (3 if p < 100 else 2)
+                        desc += f"   • **{g['name']}**: `+{g['change']:.1%}` (${g['prev_price']:.{dec}f} → ${g['curr_price']:.{dec}f})\n"
+                else:
+                    desc += "   • *No overnight gainers found.*\n"
+                    
+                desc += "\n**📉 Overnight Losers (11 PM - 6 AM EST):**\n"
+                losers = results.get('overnight_losers', [])
+                if losers:
+                    for l in losers:
+                        p = l['prev_price']
+                        dec = 4 if p < 1 else (3 if p < 100 else 2)
+                        desc += f"   • **{l['name']}**: `{l['change']:.1%}` (${l['prev_price']:.{dec}f} → ${l['curr_price']:.{dec}f})\n"
+                else:
+                    desc += "   • *No overnight losers found.*\n"
             
             # Formulate metrics table
             metrics = results.get('metrics', {})
@@ -624,6 +649,9 @@ class DiscordNotifier:
             desc += f"• Active Badge Ratio: `{metrics.get('mango_badge_trend_ratio', 0.5):.0%}`\n"
             desc += f"• Watchlist Avg Volatility: `{metrics.get('mango_avg_asset_volatility', 50.0):.0f}`\n"
             
+            if is_morning:
+                desc += f"• Watchlist Sentiment Bias: `{results.get('watchlist_bias', 'N/A')}`\n"
+            
             if results.get('avg_daily_range') is not None:
                 desc += f"\n**📈 Actual Intraday Return Range (Watchlist Average):** `{results['avg_daily_range']:.2%}`\n"
                 
@@ -635,8 +663,16 @@ class DiscordNotifier:
                 desc += "\n**🛡️ DRAWDOWN SAFEGUARD:**\n" \
                         "• Drawdown circuit breaker is active. System is operating in low-risk mode.\n"
             
+            if is_morning:
+                desc += "\n**🛡️ Safeties & Macro Context:**\n"
+                desc += f"• BTC Dominance Cycle: `{results.get('btc_dom_status', 'NEUTRAL (Data unavailable)')}`\n"
+                cap = "1 position max (scalps only)" if decision == 'RANGING_SCALPS_ONLY' else ("0 positions (all halted)" if decision == 'RANGING_NO_TRADE' else "2 positions max (standard)")
+                desc += f"• Altcoin Correlation Cap: `{cap}`\n"
+            
+            title = f"🧠 Morning Trading Brief & Regime Prediction — {date_str}" if is_morning else f"🧠 Daily Crypto Regime Check — {date_str}"
+            
             embed = {
-                "title": f"🧠 Daily Crypto Regime Check — {date_str}",
+                "title": title,
                 "description": desc,
                 "color": color,
                 "footer": {

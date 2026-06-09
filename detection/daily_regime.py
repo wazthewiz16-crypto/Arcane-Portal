@@ -131,7 +131,204 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
         else:
             # Trending: Restore standard correlation cap (2 max)
             datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", "2")
+
+        # ── Calculate Overnight Price Moves (11 PM yesterday to 6 AM today) ──
+        top_gainers = []
+        top_losers = []
+        try:
+            # Target times in UTC
+            target_prev_est = est.localize(datetime.combine(now_est.date() - timedelta(days=1), time(23, 0)))
+            target_prev_utc = target_prev_est.astimezone(pytz.utc)
+
+            target_curr_est = est.localize(datetime.combine(now_est.date(), time(6, 0)))
+            target_curr_utc = target_curr_est.astimezone(pytz.utc)
+
+            # Search windows (to handle timezone/scheduling variance)
+            prev_start = target_prev_est - timedelta(hours=1.5)
+            prev_end = target_prev_est + timedelta(hours=1.5)
+            curr_start = target_curr_est - timedelta(hours=1.5)
+            curr_end = target_curr_est + timedelta(hours=1.5)
+
+            prev_start_iso = prev_start.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            prev_end_iso = prev_end.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            curr_start_iso = curr_start.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            curr_end_iso = curr_end.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+            with datastore.get_connection() as conn:
+                scrapes_rows = datastore._fetch_query(conn, """
+                    SELECT name, close, timestamp
+                    FROM scrapes
+                    WHERE timeframe = '1h'
+                      AND (
+                        (timestamp >= ? AND timestamp <= ?)
+                        OR
+                        (timestamp >= ? AND timestamp <= ?)
+                      )
+                """, (prev_start_iso, prev_end_iso, curr_start_iso, curr_end_iso))
+
+            prev_scrapes = {}
+            curr_scrapes = {}
+            for r in scrapes_rows:
+                name = r['name']
+                if name.upper() in ('BTCD', 'CRYPTOCAP:BTC.D'):
+                    continue
+                close = r['close']
+                if close is None:
+                    continue
+                close = float(close)
+                
+                try:
+                    ts_str = r['timestamp']
+                    if ts_str.endswith('Z'):
+                        dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                    else:
+                        dt = datetime.fromisoformat(ts_str)
+                        if dt.tzinfo is None:
+                            dt = pytz.utc.localize(dt)
+                        else:
+                            dt = dt.astimezone(pytz.utc)
+                except Exception:
+                    continue
+
+                diff_prev = abs((dt - target_prev_utc).total_seconds())
+                diff_curr = abs((dt - target_curr_utc).total_seconds())
+                
+                in_prev = prev_start.astimezone(pytz.utc) <= dt <= prev_end.astimezone(pytz.utc)
+                in_curr = curr_start.astimezone(pytz.utc) <= dt <= curr_end.astimezone(pytz.utc)
+
+                if in_prev:
+                    if name not in prev_scrapes or diff_prev < prev_scrapes[name]['diff']:
+                        prev_scrapes[name] = {'close': close, 'timestamp': ts_str, 'diff': diff_prev}
+                if in_curr:
+                    if name not in curr_scrapes or diff_curr < curr_scrapes[name]['diff']:
+                        curr_scrapes[name] = {'close': close, 'timestamp': ts_str, 'diff': diff_curr}
+
+            overnight_changes = []
+            for name in prev_scrapes:
+                if name in curr_scrapes:
+                    p_close = prev_scrapes[name]['close']
+                    c_close = curr_scrapes[name]['close']
+                    if p_close > 0:
+                        change = (c_close - p_close) / p_close
+                        overnight_changes.append({
+                            'name': name,
+                            'prev_price': p_close,
+                            'curr_price': c_close,
+                            'change': change
+                        })
+
+            overnight_changes.sort(key=lambda x: x['change'], reverse=True)
+            gainers = [x for x in overnight_changes if x['change'] > 0]
+            losers = [x for x in overnight_changes if x['change'] < 0]
+            losers.sort(key=lambda x: x['change'])  # Most negative first
+
+            top_gainers = gainers[:3]
+            top_losers = losers[:3]
+        except Exception as e:
+            logger.warning(f"Error calculating overnight moves: {e}")
+
+        # ── Calculate Watchlist Bias Sentiment ──
+        watchlist_bias = "N/A"
+        try:
+            cached_data_str = datastore.get_setting("MANGO_DASHBOARD_CACHED_DATA")
+            if cached_data_str:
+                cached_data = json.loads(cached_data_str)
+                assets = cached_data.get('assets', {})
+                
+                crypto_watchlist = {"BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "LINK", "ARB", "AVAX", "ADA", "HYPE", "TRX", "INJ", "ONDO", "NEAR", "PAXG"}
+                long_count = 0
+                short_count = 0
+                neutral_count = 0
+                
+                for sym, asset_data in assets.items():
+                    if sym.upper() in crypto_watchlist:
+                        trend = str(asset_data.get('trend', 'NEUTRAL')).upper()
+                        if 'LONG' in trend or 'BULL' in trend:
+                            long_count += 1
+                        elif 'SHORT' in trend or 'BEAR' in trend:
+                            short_count += 1
+                        else:
+                            neutral_count += 1
+                
+                if long_count > short_count:
+                    bias_label = "Bullish Bias"
+                elif short_count > long_count:
+                    bias_label = "Bearish Bias"
+                else:
+                    bias_label = "Neutral Bias"
+                    
+                watchlist_bias = f"{long_count} LONG, {short_count} SHORT, {neutral_count} NEUTRAL ({bias_label})"
+        except Exception as e:
+            logger.warning(f"Error calculating watchlist sentiment bias: {e}")
+
+        # ── Calculate BTC Dominance Cycle status ──
+        btc_dom_status = "NEUTRAL (Data unavailable)"
+        try:
+            with datastore.get_connection() as conn:
+                macro_rows = datastore._fetch_query(conn, """
+                    SELECT name, timeframe, close, open, high, low,
+                           mango_d1, mango_d2, entry_up, entry_down, trend
+                    FROM scrapes
+                    WHERE name IN ('BTC', 'BTCD', 'CRYPTOCAP:BTC.D')
+                      AND timeframe IN ('4h', '1h')
+                    ORDER BY timestamp DESC
+                """)
             
+            btc_scrapes = {}
+            for r in macro_rows:
+                name = 'BTCD' if r['name'] == 'CRYPTOCAP:BTC.D' else r['name']
+                tf = r['timeframe']
+                if name not in btc_scrapes:
+                    btc_scrapes[name] = {}
+                if tf not in btc_scrapes[name]:
+                    btc_scrapes[name][tf] = r
+                    
+            def get_direction(htf_data):
+                if not htf_data:
+                    return 'NEUTRAL'
+                scraped_trend = htf_data.get('trend')
+                if scraped_trend:
+                    if 'Bullish' in scraped_trend or 'LONG' in scraped_trend: return 'LONG'
+                    if 'Bearish' in scraped_trend or 'SHORT' in scraped_trend: return 'SHORT'
+                    if 'Neutral' in scraped_trend or 'NEUTRAL' in scraped_trend: return 'NEUTRAL'
+                
+                price = htf_data.get('close')
+                d1 = htf_data.get('mango_d1')
+                d2 = htf_data.get('mango_d2')
+                if price is not None and d1 is not None and d2 is not None:
+                    price = float(price)
+                    d1 = float(d1)
+                    d2 = float(d2)
+                    ribbon_top = max(d1, d2)
+                    ribbon_bottom = min(d1, d2)
+                    if price > ribbon_top:
+                        return 'LONG'
+                    elif price < ribbon_bottom:
+                        return 'SHORT'
+                return 'NEUTRAL'
+
+            btc_data = btc_scrapes.get('BTC', {}).get('4h') or btc_scrapes.get('BTC', {}).get('1h')
+            btcd_data = btc_scrapes.get('BTCD', {}).get('4h') or btc_scrapes.get('BTCD', {}).get('1h')
+            
+            btc_dir = get_direction(btc_data)
+            btcd_dir_raw = get_direction(btcd_data)
+            btcd_dir = 'UP' if btcd_dir_raw == 'LONG' else ('DOWN' if btcd_dir_raw == 'SHORT' else 'NEUTRAL')
+            
+            if btcd_dir == 'UP' and btc_dir == 'LONG':
+                btc_dom_status = "ALT_BEARISH (Money flowing into BTC, alts underperform BTC)"
+            elif btcd_dir == 'UP' and btc_dir == 'SHORT':
+                btc_dom_status = "ALT_DUMP (Widespread risk-off, dump likely)"
+            elif btcd_dir == 'DOWN' and btc_dir == 'LONG':
+                btc_dom_status = "ALT_SEASON (Capital rotating into alts, bullish alts)"
+            elif btcd_dir == 'DOWN' and btc_dir == 'SHORT':
+                btc_dom_status = "ALT_NEUTRAL (BTC falling with dominance, alts stable)"
+            elif btcd_dir == 'DOWN' and btc_dir == 'NEUTRAL':
+                btc_dom_status = "ALT_SLIGHTLY_BULLISH (Slight alt bias)"
+            else:
+                btc_dom_status = f"NEUTRAL (BTC={btc_dir}, BTC.D={btcd_dir})"
+        except Exception as e:
+            logger.warning(f"Error calculating BTC Dominance Cycle status: {e}")
+
         # Send Discord Alert
         results = {
             'date': now_est.strftime('%Y-%m-%d'),
@@ -143,7 +340,11 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
             'bbwp_squeeze': bbwp_squeeze,
             'btc_vol': btc_vol,
             'cb_active': cb_active,
-            'metrics': features
+            'metrics': features,
+            'overnight_gainers': top_gainers,
+            'overnight_losers': top_losers,
+            'watchlist_bias': watchlist_bias,
+            'btc_dom_status': btc_dom_status
         }
         notifier.send_daily_regime_alert(results)
         
