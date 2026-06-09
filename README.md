@@ -251,6 +251,10 @@ Arcane-Portal/
   - 🚦 **Regime Halt Confidence Tuning:** Raised the `RANGING_NO_TRADE` confidence threshold from `70.0%` to `85.0%` in both morning and afternoon checks. This prevents halting all signals on moderately ranging days (confidence < 85%), transitioning instead to `RANGING_SCALPS_ONLY` where scalp trading remains active.
   - ⚡ **Loosened Scalp Macro Alignment:** Loosened the daily trend Grandmaster Filter for scalps in `detection/signals.py` to allow `NEUTRAL` Daily trend states. This allows scalp signals to fire during consolidation ranges where the daily trend is neutral, increasing signal frequency.
   - ⚙️ **Auto-Optimizer Floor & Safety Valve Tweak:** Lowered confidence floor limits to `55` for swing and `60` for scalp trades, and reduced safety valve throttle duration from 23 hours to 12 hours in `auto_optimizer.py` to allow faster adaptive stepping down when signals dry up.
+  - 🔍 **Afternoon Verification Upgrade:** Upgraded the 1:00 PM EST Afternoon Verification check in `detection/daily_regime.py` to incorporate:
+    - **Dynamic Volatility Thresholds:** Computes rolling average daily ranges over the past 7 days from database scrapes to scale trending (0.8x) and ranging (0.4x) thresholds adaptively.
+    - **Morning Session Mover Tracking:** Tracks directional net session returns (6:00 AM to 1:00 PM EST) and highlights the top session gainers and losers.
+    - **Active Signals Feedback Loop & Capital Safeguard:** Evaluates morning trade outcomes; if trades are bleeding (e.g. $\ge 3$ stop-outs or realized PnL $\le -2.0R$), it triggers an automatic downgrade to `RANGING_SCALPS_ONLY` to restrict further swing risk.
 
 **Previous Update:** 2026-06-05
 
