@@ -174,6 +174,19 @@ class MangoDataStore:
                     CREATE INDEX IF NOT EXISTS idx_mango_scrapes_timestamp 
                     ON mango_scrapes(timestamp)
                 """)
+                
+                # Backtest runs table (Postgres)
+                self._execute_query(conn, """
+                    CREATE TABLE IF NOT EXISTS backtest_runs (
+                        id SERIAL PRIMARY KEY,
+                        run_name TEXT NOT NULL,
+                        asset_name TEXT NOT NULL,
+                        timeframe TEXT NOT NULL,
+                        parameters_json TEXT NOT NULL,
+                        metrics_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
 
             else:
                 # SQLite syntax (existing code)
@@ -302,6 +315,19 @@ class MangoDataStore:
                 self._execute_query(conn, """
                     CREATE INDEX IF NOT EXISTS idx_mango_scrapes_timestamp 
                     ON mango_scrapes(timestamp)
+                """)
+                
+                # Backtest runs table (SQLite)
+                self._execute_query(conn, """
+                    CREATE TABLE IF NOT EXISTS backtest_runs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_name TEXT NOT NULL,
+                        asset_name TEXT NOT NULL,
+                        timeframe TEXT NOT NULL,
+                        parameters_json TEXT NOT NULL,
+                        metrics_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
                 """)
 
     def get_setting(self, key, default_value=None):
@@ -905,3 +931,56 @@ class MangoDataStore:
             if row:
                 return row[0] if isinstance(row, tuple) else row['image_data']
             return None
+
+    def save_backtest_run(self, run_name, asset_name, timeframe, parameters, metrics):
+        """Save a backtest run to the DB"""
+        import json
+        from datetime import datetime
+        with self.get_connection() as conn:
+            query = """
+                INSERT INTO backtest_runs (run_name, asset_name, timeframe, parameters_json, metrics_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """
+            self._execute_query(conn, query, (
+                run_name,
+                asset_name,
+                timeframe,
+                json.dumps(parameters),
+                json.dumps(metrics),
+                datetime.utcnow().isoformat()
+            ))
+
+    def get_backtest_runs(self):
+        """Get all saved backtest runs from DB"""
+        import json
+        with self.get_connection() as conn:
+            cursor = self._execute_query(conn, "SELECT id, run_name, asset_name, timeframe, parameters_json, metrics_json, created_at FROM backtest_runs ORDER BY created_at DESC")
+            rows = cursor.fetchall()
+            runs = []
+            for r in rows:
+                if isinstance(r, tuple):
+                    runs.append({
+                        'id': r[0],
+                        'run_name': r[1],
+                        'asset_name': r[2],
+                        'timeframe': r[3],
+                        'parameters': json.loads(r[4]) if r[4] else {},
+                        'metrics': json.loads(r[5]) if r[5] else {},
+                        'created_at': r[6]
+                    })
+                else:
+                    runs.append({
+                        'id': r['id'],
+                        'run_name': r['run_name'],
+                        'asset_name': r['asset_name'],
+                        'timeframe': r['timeframe'],
+                        'parameters': json.loads(r['parameters_json']) if r['parameters_json'] else {},
+                        'metrics': json.loads(r['metrics_json']) if r['metrics_json'] else {},
+                        'created_at': r['created_at']
+                    })
+            return runs
+
+    def delete_backtest_run(self, run_id):
+        """Delete a backtest run by ID"""
+        with self.get_connection() as conn:
+            self._execute_query(conn, "DELETE FROM backtest_runs WHERE id = ?", (run_id,))

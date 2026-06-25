@@ -712,197 +712,329 @@ def render_dynamic_levels(datastore):
                     except:
                         pass
                 
-                with st.expander(label):
-                    if res and isinstance(res, dict) and res.get('image_data'):
-                        try:
-                            # Convert memoryview to bytes for st.image
-                            img_data = bytes(res['image_data'])
-                            st.image(img_data, use_column_width=True)
-                            if updated_at_str:
-                                 st.caption(f"Last Scraped: {updated_at_str} EST")
-                        except Exception as e:
-                            st.error(f"Image load error: {e}")
-                    else:
-                        st.info("No screenshot data found")
-            
-            st.divider()
-
 def render_backtest_optimizer():
     """Render the Backtesting and Parameter Optimization Tab"""
     st.subheader("🧪 Trading Strategy Backtester & Parameter Sweep")
     
-    st.markdown("""
-    This backtester allows you to simulate historical trading performance of your **Mutanabby_AI** and **Mango Ribbon (TK Cross)** trading strategy.
+    # Define sub-tabs at the top level
+    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["📊 Strategy Simulation", "⚡ Parameter Sweep (Grid Search)", "💾 Saved Backtests"])
     
-    ### How to get the CSV data:
-    1. Open your **TradingView chart** with the backtesting layout.
-    2. Ensure the indicator style settings have **Mutanabby Buy/Sell** signals and **TK Bull/Bear crosses** visible/enabled for export.
-    3. Click the **Chart Menu** (top left/right) -> **Export chart data** -> Choose **UNIX timestamp** or **ISO time**.
-    4. Save the file and upload it here.
-    """)
-    
-    # 1. File Uploader
-    uploaded_file = st.file_uploader("Upload TradingView Export (CSV or Tab-Separated TXT)", type=["csv", "txt"])
-    
-    if uploaded_file is not None:
-        # Import engine and optimizer locally
-        from backtester.backtest_engine import load_data, run_backtest
-        from backtester.parameter_optimizer import run_optimization_sweep
+    with sub_tab1:
+        st.markdown("""
+        Simulate historical trading performance of your **Mutanabby_AI** and **Mango Ribbon (TK Cross)** strategy.
         
-        # Load the data
-        df, mapping = load_data(uploaded_file)
+        ### How to get the CSV data:
+        1. Open your **TradingView chart** with the backtesting layout.
+        2. Ensure the indicator style settings have **Mutanabby Buy/Sell** signals and **TK Bull/Bear crosses** visible/enabled for export.
+        3. Click **Chart Menu** (top left/right) -> **Export chart data** -> Choose **UNIX timestamp** or **ISO time**.
+        4. Save and upload it below.
+        """)
         
-        if df is None or not mapping:
-            st.error("❌ Failed to parse the uploaded file. Please ensure it is a valid TradingView export with time, open, high, low, close columns.")
-            return
-            
-        # Data success feedback
-        st.success(f"✅ Successfully loaded **{len(df)}** rows of historical data.")
+        uploaded_file = st.file_uploader("Upload TradingView Export (CSV or Tab-Separated TXT)", type=["csv", "txt"], key="uploader_sim")
         
-        # Show detected column mappings in an expander
-        with st.expander("🔍 Column Mapping & Data Preview"):
-            st.markdown("Below are the detected mappings from your CSV headers to indicator fields:")
-            mapping_data = []
-            for k, v in mapping.items():
-                mapping_data.append({"Indicator Field": k, "CSV Column Name": v})
-            st.dataframe(pd.DataFrame(mapping_data))
-            st.markdown("First few rows of parsed data:")
-            st.dataframe(df.head(5))
+        if uploaded_file is not None:
+            # Import engine locally
+            from backtester.backtest_engine import load_data, run_backtest
             
-        # Create tabs inside the backtester view: Simulation vs Sweep
-        sub_tab1, sub_tab2 = st.tabs(["📊 Strategy Simulation", "⚡ Parameter Sweep (Grid Search)"])
-        
-        with sub_tab1:
-            st.markdown("### Configure Backtest Parameters")
+            # Load the data
+            df, mapping = load_data(uploaded_file)
             
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                sl_buffer_pct = st.slider("Stop Loss Buffer (%)", min_value=0.0, max_value=5.0, value=1.2, step=0.1, help="Buffer distance below Zone Lower (for longs) or above Zone Upper (for shorts)")
-                min_risk_pct_val = st.slider("Minimum Risk Floor (%)", min_value=0.5, max_value=5.0, value=2.2, step=0.1, help="Minimum distance for SL to protect against too-tight stops")
-                rr_ratio_val = st.number_input("Baseline Take Profit R:R Ratio", min_value=0.5, max_value=10.0, value=1.8, step=0.1, help="Target risk-to-reward ratio for standard signal entries")
-                
-            with col2:
-                aggressive_rr_ratio_val = st.number_input("Aggressive Take Profit R:R Ratio (Confluence)", min_value=0.5, max_value=10.0, value=2.5, step=0.1, help="Target risk-to-reward ratio when TK Cross confluence exists")
-                aggressive_lookback_val = st.slider("TK Cross Confluence Lookback (candles)", min_value=0, max_value=10, value=3, help="Number of candles prior to Mutanabby signal to search for TK cross")
-                use_dynamic_zone_val = st.checkbox("Filter by Mango Dynamic Zone", value=True, help="Only entry signals that close within the Entry Zone Upper/Lower boundaries are executed")
-                max_bars_held_val = st.number_input("Max Bars Held (Time Exit, 0 to disable)", min_value=0, max_value=200, value=0, help="Force exit trades after this many bars regardless of TP/SL")
-
-            # Run Backtest
-            params = {
-                'sl_buffer': sl_buffer_pct / 100.0,
-                'min_risk_pct': min_risk_pct_val / 100.0,
-                'rr_ratio': rr_ratio_val,
-                'aggressive_rr_ratio': aggressive_rr_ratio_val,
-                'aggressive_lookback': aggressive_lookback_val,
-                'use_dynamic_zone': use_dynamic_zone_val,
-                'max_bars_held': max_bars_held_val
-            }
-            
-            metrics = run_backtest(df, mapping, params)
-            
-            if metrics['total_trades'] == 0:
-                st.warning("⚠️ No trades were executed with the current parameters and data. Ensure your CSV has Mutanabby buy/sell signals.")
+            if df is None or not mapping:
+                st.error("❌ Failed to parse the uploaded file. Please ensure it is a valid TradingView export with time, open, high, low, close columns.")
             else:
-                # Display metrics cards
-                st.markdown("### Simulation Results")
-                m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
+                st.success(f"✅ Successfully loaded **{len(df)}** rows of historical data.")
                 
-                with m_col1:
-                    st.metric("Total Trades", f"{metrics['total_trades']}")
-                with m_col2:
-                    st.metric("Win Rate", f"{metrics['win_rate_pct']}%")
-                with m_col3:
-                    st.metric("Net Profit (R)", f"{metrics['net_profit_r']} R")
-                with m_col4:
-                    st.metric("Profit Factor", f"{metrics['profit_factor']}")
-                with m_col5:
-                    st.metric("Max Drawdown (R)", f"{metrics['max_drawdown_r']} R")
+                # Show mapping
+                with st.expander("🔍 Column Mapping & Data Preview"):
+                    mapping_data = [{"Indicator Field": k, "CSV Column Name": v} for k, v in mapping.items()]
+                    st.dataframe(pd.DataFrame(mapping_data))
+                    st.markdown("First few rows:")
+                    st.dataframe(df.head(5))
                     
-                # Extra metric check
-                st.info(f"Cumulative percentage return of simulated trades: **{metrics['net_profit_pct']:.2f}%** (assuming fixed trade sizing)")
+                st.markdown("### Configure Backtest Parameters")
+                col1, col2 = st.columns(2)
+                with col1:
+                    sl_buffer_pct = st.slider("Stop Loss Buffer (%)", min_value=0.0, max_value=5.0, value=1.2, step=0.1, help="Buffer distance below Zone Lower (for longs) or above Zone Upper (for shorts)")
+                    min_risk_pct_val = st.slider("Minimum Risk Floor (%)", min_value=0.5, max_value=5.0, value=2.2, step=0.1, help="Minimum distance for SL to protect against too-tight stops")
+                    rr_ratio_val = st.number_input("Baseline Take Profit R:R Ratio", min_value=0.5, max_value=10.0, value=1.8, step=0.1, help="Target risk-to-reward ratio for standard signal entries")
+                with col2:
+                    aggressive_rr_ratio_val = st.number_input("Aggressive Take Profit R:R Ratio (Confluence)", min_value=0.5, max_value=10.0, value=2.5, step=0.1, help="Target risk-to-reward ratio when TK Cross confluence exists")
+                    aggressive_lookback_val = st.slider("TK Cross Confluence Lookback (candles)", min_value=0, max_value=10, value=3, help="Number of candles prior to Mutanabby signal to search for TK cross")
+                    use_dynamic_zone_val = st.checkbox("Filter by Mango Dynamic Zone", value=True, help="Only entry signals that close within the Entry Zone Upper/Lower boundaries are executed")
+                    max_bars_held_val = st.number_input("Max Bars Held (Time Exit, 0 to disable)", min_value=0, max_value=200, value=0, help="Force exit trades after this many bars regardless of TP/SL")
 
-                # Plot Cumulative returns
-                trades_df = pd.DataFrame(metrics['trades'])
-                trades_df['trade_num'] = range(1, len(trades_df) + 1)
-                trades_df['cumulative_r'] = trades_df['r_return'].cumsum()
+                # Run Backtest
+                params = {
+                    'sl_buffer': sl_buffer_pct / 100.0,
+                    'min_risk_pct': min_risk_pct_val / 100.0,
+                    'rr_ratio': rr_ratio_val,
+                    'aggressive_rr_ratio': aggressive_rr_ratio_val,
+                    'aggressive_lookback': aggressive_lookback_val,
+                    'use_dynamic_zone': use_dynamic_zone_val,
+                    'max_bars_held': max_bars_held_val
+                }
                 
-                st.markdown("#### Cumulative R-Return Curve")
-                chart_data = trades_df.set_index('trade_num')[['cumulative_r']]
-                st.line_chart(chart_data)
+                metrics = run_backtest(df, mapping, params)
                 
-                # Detailed trade history
-                with st.expander("📜 View Detailed Trade Log"):
-                    display_df = trades_df.copy()
-                    # Format entry/exit time displays if they are unix timestamps
-                    try:
-                        # Convert to timestamp if it is numerical, else keep as is
-                        if pd.api.types.is_numeric_dtype(display_df['entry_time']):
-                            display_df['entry_time'] = pd.to_datetime(display_df['entry_time'], unit='s', errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
-                        if pd.api.types.is_numeric_dtype(display_df['exit_time']):
-                            display_df['exit_time'] = pd.to_datetime(display_df['exit_time'], unit='s', errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
-                    except Exception as e:
-                        logger.warning(f"Error formatting timestamps in trade log: {e}")
-                    
-                    st.dataframe(display_df[[
-                        'entry_time', 'exit_time', 'type', 'entry_price', 
-                        'exit_price', 'stop_loss', 'take_profit', 'result', 
-                        'r_return', 'percent_return', 'aggressive'
-                    ]])
-        
-        with sub_tab2:
-            st.markdown("### Parameter Sweep Optimizer")
-            st.write("Grid search sweeps will test multiple combinations of SL buffers, risk floors, and reward ratios to mathematically identify the highest-performing configurations.")
-            
-            # Configure Sweep Ranges
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                sweep_sl_buffers = st.multiselect("SL Buffers to test (%)", options=[0.5, 0.8, 1.0, 1.2, 1.5, 2.0], default=[0.8, 1.2, 1.5], help="Percentage buffer added to the dynamic zone borders.")
-                sweep_min_risk = st.multiselect("Min Risk Floors to test (%)", options=[1.5, 1.8, 2.2, 2.5, 3.0], default=[1.8, 2.2], help="Protects against tiny risk calculations causing extremely tight stops.")
-                sweep_zone_filter = st.multiselect("Filter by Zone", options=[True, False], default=[True])
-            with col_s2:
-                sweep_rr = st.multiselect("Baseline R:R to test", options=[1.2, 1.5, 1.8, 2.0, 2.2], default=[1.5, 1.8, 2.0])
-                sweep_agg_rr = st.multiselect("Aggressive R:R to test", options=[2.0, 2.5, 3.0, 3.5], default=[2.5, 3.0])
-                
-            sweep_button = st.button("🚀 Run Parameter Sweep")
-            
-            if sweep_button:
-                if not sweep_sl_buffers or not sweep_min_risk or not sweep_rr or not sweep_agg_rr:
-                    st.error("Please select at least one value for each parameter range.")
+                if metrics['total_trades'] == 0:
+                    st.warning("⚠️ No trades were executed with the current parameters and data. Ensure your CSV has Mutanabby buy/sell signals.")
                 else:
-                    sweep_config = {
-                        'sl_buffers': [b / 100.0 for b in sweep_sl_buffers],
-                        'min_risk_pcts': [r / 100.0 for r in sweep_min_risk],
-                        'rr_ratios': sweep_rr,
-                        'aggressive_rr_ratios': sweep_agg_rr,
-                        'use_dynamic_zone': sweep_zone_filter
-                    }
-                    
-                    with st.spinner("Running parameter sweeps... This may take a few moments."):
-                        sweep_results = run_optimization_sweep(df, mapping, sweep_config)
+                    # Display metrics cards
+                    st.markdown("### Simulation Results")
+                    m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
+                    with m_col1:
+                        st.metric("Total Trades", f"{metrics['total_trades']}")
+                    with m_col2:
+                        st.metric("Win Rate", f"{metrics['win_rate_pct']}%")
+                    with m_col3:
+                        st.metric("Net Profit (R)", f"{metrics['net_profit_r']} R")
+                    with m_col4:
+                        st.metric("Profit Factor", f"{metrics['profit_factor']}")
+                    with m_col5:
+                        st.metric("Max Drawdown (R)", f"{metrics['max_drawdown_r']} R")
                         
-                    st.success(f"Sweep complete! Tested {len(sweep_results)} configurations.")
+                    st.info(f"Cumulative percentage return of simulated trades: **{metrics['net_profit_pct']:.2f}%** (assuming fixed trade sizing)")
+
+                    # Plot
+                    trades_df = pd.DataFrame(metrics['trades'])
+                    trades_df['trade_num'] = range(1, len(trades_df) + 1)
+                    trades_df['cumulative_r'] = trades_df['r_return'].cumsum()
                     
-                    # Convert to dataframe for display
-                    sweep_df = pd.DataFrame(sweep_results)
-                    # Convert back to percent for user-friendly table
-                    sweep_df['sl_buffer (%)'] = sweep_df['sl_buffer'] * 100.0
-                    sweep_df['min_risk_pct (%)'] = sweep_df['min_risk_pct'] * 100.0
+                    st.markdown("#### Cumulative R-Return Curve")
+                    st.line_chart(trades_df.set_index('trade_num')[['cumulative_r']])
                     
-                    display_cols = [
-                        'sl_buffer (%)', 'min_risk_pct (%)', 'rr_ratio', 
-                        'aggressive_rr_ratio', 'use_dynamic_zone', 'total_trades', 
-                        'win_rate_pct', 'net_profit_r', 'profit_factor', 'max_drawdown_r'
-                    ]
+                    # Save block
+                    st.markdown("### 💾 Save This Simulation Result")
+                    save_col1, save_col2 = st.columns([3, 1])
+                    with save_col1:
+                        default_run_name = "BTC 1D Simulation"
+                        try:
+                            filename = uploaded_file.name.upper()
+                            parts = filename.split('_')
+                            asset = parts[1] if len(parts) > 1 else "BTC"
+                            tf = parts[2].split(',')[0] if len(parts) > 2 else "1D"
+                            asset = asset.split(',')[0].replace('USDT.P', '').replace('USDT', '')
+                            default_run_name = f"{asset} {tf} Simulation"
+                        except Exception:
+                            pass
+                        run_name_input = st.text_input("Configuration Name", value=default_run_name, key="save_run_name_sim")
+                    with save_col2:
+                        st.markdown("<div style='padding-top: 1.6rem;'></div>", unsafe_allow_html=True)
+                        save_clicked = st.button("💾 Save Run", key="save_run_btn_sim")
+                        
+                    if save_clicked:
+                        if not run_name_input.strip():
+                            st.error("Please enter a valid configuration name.")
+                        else:
+                            try:
+                                asset_name = "BTC"
+                                tf_name = "1D"
+                                filename = uploaded_file.name.upper()
+                                if "_" in filename:
+                                    parts = filename.split("_")
+                                    asset_name = parts[1].split(",")[0].replace("USDT.P", "").replace("USDT", "")
+                                    if len(parts) > 2:
+                                        tf_name = parts[2].split("_")[0].split(",")[0]
+                                tf_name = tf_name.replace(".CSV", "").replace(".TXT", "").strip()
+                                
+                                from detection.datastore import MangoDataStore
+                                ds = MangoDataStore()
+                                ds.save_backtest_run(
+                                    run_name=run_name_input.strip(),
+                                    asset_name=asset_name,
+                                    timeframe=tf_name,
+                                    parameters=params,
+                                    metrics={
+                                        'total_trades': metrics['total_trades'],
+                                        'win_rate_pct': metrics['win_rate_pct'],
+                                        'net_profit_r': metrics['net_profit_r'],
+                                        'profit_factor': metrics['profit_factor'],
+                                        'max_drawdown_r': metrics['max_drawdown_r'],
+                                        'net_profit_pct': metrics['net_profit_pct']
+                                    }
+                                )
+                                st.success(f"✅ Successfully saved backtest run '{run_name_input.strip()}'!")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to save run: {e}")
                     
-                    st.markdown("#### Top 10 Configurations (Sorted by Net Profit R)")
-                    st.dataframe(sweep_df[display_cols].head(10))
+                    # Detailed trade history
+                    with st.expander("📜 View Detailed Trade Log"):
+                        display_df = trades_df.copy()
+                        try:
+                            if pd.api.types.is_numeric_dtype(display_df['entry_time']):
+                                display_df['entry_time'] = pd.to_datetime(display_df['entry_time'], unit='s', errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                            if pd.api.types.is_numeric_dtype(display_df['exit_time']):
+                                display_df['exit_time'] = pd.to_datetime(display_df['exit_time'], unit='s', errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                        except Exception as e:
+                            logger.warning(f"Error formatting timestamps in trade log: {e}")
+                        
+                        st.dataframe(display_df[[
+                            'entry_time', 'exit_time', 'type', 'entry_price', 
+                            'exit_price', 'stop_loss', 'take_profit', 'result', 
+                            'r_return', 'percent_return', 'aggressive'
+                        ]])
+        else:
+            st.info("💡 Please upload a TradingView CSV or TXT export file below to begin backtesting.")
+
+    with sub_tab2:
+        st.markdown("### Parameter Sweep Optimizer")
+        st.write("Grid search sweeps will test multiple combinations of SL buffers, risk floors, and reward ratios to mathematically identify the highest-performing configurations.")
+        
+        uploaded_file_sweep = st.file_uploader("Upload TradingView Export (CSV or Tab-Separated TXT)", type=["csv", "txt"], key="uploader_sweep")
+        
+        if uploaded_file_sweep is not None:
+            # Import engine locally
+            from backtester.backtest_engine import load_data
+            from backtester.parameter_optimizer import run_optimization_sweep
+            
+            # Load the data
+            df, mapping = load_data(uploaded_file_sweep)
+            
+            if df is None or not mapping:
+                st.error("❌ Failed to parse the uploaded file. Please ensure it is a valid TradingView export with time, open, high, low, close columns.")
+            else:
+                st.success(f"✅ Successfully loaded **{len(df)}** rows of historical data.")
+                
+                # Configure Sweep Ranges
+                col_s1, col_s2 = st.columns(2)
+                with col_s1:
+                    sweep_sl_buffers = st.multiselect("SL Buffers to test (%)", options=[0.5, 0.8, 1.0, 1.2, 1.5, 2.0], default=[0.8, 1.2, 1.5], help="Percentage buffer added to the dynamic zone borders.")
+                    sweep_min_risk = st.multiselect("Min Risk Floors to test (%)", options=[1.5, 1.8, 2.2, 2.5, 3.0], default=[1.8, 2.2], help="Protects against tiny risk calculations causing extremely tight stops.")
+                    sweep_zone_filter = st.multiselect("Filter by Zone", options=[True, False], default=[True])
+                with col_s2:
+                    sweep_rr = st.multiselect("Baseline R:R to test", options=[1.2, 1.5, 1.8, 2.0, 2.2], default=[1.5, 1.8, 2.0])
+                    sweep_agg_rr = st.multiselect("Aggressive R:R to test", options=[2.0, 2.5, 3.0, 3.5], default=[2.5, 3.0])
                     
-                    # Detailed results
-                    with st.expander("View Full Sweep Results"):
-                        st.dataframe(sweep_df[display_cols])
-    else:
-        st.info("💡 Please upload a TradingView CSV or TXT export file above to begin backtesting.")
+                sweep_button = st.button("🚀 Run Parameter Sweep")
+                
+                if sweep_button:
+                    if not sweep_sl_buffers or not sweep_min_risk or not sweep_rr or not sweep_agg_rr:
+                        st.error("Please select at least one value for each parameter range.")
+                    else:
+                        sweep_config = {
+                            'sl_buffers': [b / 100.0 for b in sweep_sl_buffers],
+                            'min_risk_pcts': [r / 100.0 for r in sweep_min_risk],
+                            'rr_ratios': sweep_rr,
+                            'aggressive_rr_ratios': sweep_agg_rr,
+                            'use_dynamic_zone': sweep_zone_filter
+                        }
+                        
+                        with st.spinner("Running parameter sweeps... This may take a few moments."):
+                            sweep_results = run_optimization_sweep(df, mapping, sweep_config)
+                            
+                        st.success(f"Sweep complete! Tested {len(sweep_results)} configurations.")
+                        
+                        # Convert to dataframe for display
+                        sweep_df = pd.DataFrame(sweep_results)
+                        # Convert back to percent for user-friendly table
+                        sweep_df['sl_buffer (%)'] = sweep_df['sl_buffer'] * 100.0
+                        sweep_df['min_risk_pct (%)'] = sweep_df['min_risk_pct'] * 100.0
+                        
+                        display_cols = [
+                            'sl_buffer (%)', 'min_risk_pct (%)', 'rr_ratio', 
+                            'aggressive_rr_ratio', 'use_dynamic_zone', 'total_trades', 
+                            'win_rate_pct', 'net_profit_r', 'profit_factor', 'max_drawdown_r'
+                        ]
+                        
+                        st.markdown("#### Top 10 Configurations (Sorted by Net Profit R)")
+                        st.dataframe(sweep_df[display_cols].head(10))
+                        
+                        # Detailed results
+                        with st.expander("View Full Sweep Results"):
+                            st.dataframe(sweep_df[display_cols])
+        else:
+            st.info("💡 Please upload a TradingView CSV or TXT export file below to begin parameter sweep optimization.")
+
+    with sub_tab3:
+        st.markdown("### 💾 Saved Backtest Runs")
+        st.write("Review your historical backtesting configurations and compare their performance side-by-side.")
+        
+        from detection.datastore import MangoDataStore
+        ds = MangoDataStore()
+        saved_runs = ds.get_backtest_runs()
+        
+        if not saved_runs:
+            st.info("No saved backtest runs found. Run a simulation and save it to see it listed here.")
+        else:
+            # 1. Comparison section
+            st.markdown("#### 🔍 Compare Saved Configurations")
+            
+            run_options = {f"{r['run_name']} ({r['asset_name']} {r['timeframe']}) - {r['metrics'].get('net_profit_r', 0.0)} R": r for r in saved_runs}
+            selected_compare_labels = st.multiselect(
+                "Select configurations to compare side-by-side:",
+                options=list(run_options.keys()),
+                default=list(run_options.keys())[:2] if len(run_options) >= 2 else list(run_options.keys())
+            )
+            
+            if selected_compare_labels:
+                compare_data = []
+                for label in selected_compare_labels:
+                    run = run_options[label]
+                    p = run['parameters']
+                    m = run['metrics']
+                    compare_data.append({
+                        "Run Name": run['run_name'],
+                        "Asset": run['asset_name'],
+                        "Timeframe": run['timeframe'],
+                        "Net Profit (R)": f"{m.get('net_profit_r', 0.0)} R",
+                        "Net Profit (%)": f"{m.get('net_profit_pct', 0.0):.2f}%",
+                        "Win Rate": f"{m.get('win_rate_pct', 0.0)}%",
+                        "Profit Factor": m.get('profit_factor', 1.0),
+                        "Max Drawdown (R)": f"{m.get('max_drawdown_r', 0.0)} R",
+                        "Total Trades": m.get('total_trades', 0),
+                        "SL Buffer (%)": f"{p.get('sl_buffer', 0.0)*100.0:.2f}%",
+                        "Min Risk Floor (%)": f"{p.get('min_risk_pct', 0.0)*100.0:.2f}%",
+                        "Baseline R:R": p.get('rr_ratio', 1.8),
+                        "Aggressive R:R": p.get('aggressive_rr_ratio', 2.5),
+                        "Zone Filtered": "Yes" if p.get('use_dynamic_zone', True) else "No",
+                        "Max Bars Held": p.get('max_bars_held', 0),
+                        "Date Run (UTC)": run['created_at'].split('T')[0]
+                    })
+                
+                st.dataframe(pd.DataFrame(compare_data).set_index("Run Name"))
+                
+            st.divider()
+            
+            # 2. List & Management section
+            st.markdown("#### ⚙️ Manage Saved Runs")
+            
+            runs_list = []
+            for r in saved_runs:
+                m = r['metrics']
+                runs_list.append({
+                    "ID": r['id'],
+                    "Run Name": r['run_name'],
+                    "Asset": r['asset_name'],
+                    "TF": r['timeframe'],
+                    "Trades": m.get('total_trades', 0),
+                    "Win Rate": f"{m.get('win_rate_pct', 0.0)}%",
+                    "Net R": f"{m.get('net_profit_r', 0.0)} R",
+                    "Profit Factor": m.get('profit_factor', 1.0),
+                    "Date Saved": r['created_at'].replace('T', ' ').split('.')[0]
+                })
+            
+            st.dataframe(pd.DataFrame(runs_list).set_index("ID"))
+            
+            # Delete configuration
+            delete_col1, delete_col2 = st.columns([3, 1])
+            with delete_col1:
+                delete_options = {f"{r['run_name']} (ID: {r['id']})": r['id'] for r in saved_runs}
+                to_delete_label = st.selectbox("Select run to delete:", options=list(delete_options.keys()))
+            with delete_col2:
+                st.markdown("<div style='padding-top: 1.6rem;'></div>", unsafe_allow_html=True)
+                delete_clicked = st.button("🗑️ Delete Run", type="secondary")
+                
+            if delete_clicked:
+                run_id = delete_options[to_delete_label]
+                try:
+                    ds.delete_backtest_run(run_id)
+                    st.success(f"🗑️ Successfully deleted saved run '{to_delete_label}'!")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to delete saved run: {e}")
 
 def main():
     """Main dashboard function"""
