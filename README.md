@@ -24,6 +24,7 @@
 - 🤖 **Auto-Optimizer**: Runs continually to dynamically adjust confidence thresholds up or down based on recent win rates, frequency, and detected market regime, preventing dry spells and system death-spirals.
 - 📡 **Trade Radar**: Automatically pushes the top 5 "Prime" active trades (ideal pullbacks and near-entry trades) to Discord 4 times a day, allowing you to catch high-probability setups without watching charts.
 - 📊 **Real-time Dashboard**: Beautiful Streamlit interface with live updates, active signals, historical performance, dynamic levels (15m through 4d), and system health metrics.
+- 🧪 **Strategy Backtester & Parameter Optimizer**: Built directly into the dashboard, supporting TV CSV/TXT uploads, automated column mapping with confluences, database persistence (SQLite/PostgreSQL) to save historical simulations, side-by-side run comparisons, and grid-search parameter sweeps to maximize profitability.
 - 💬 **Discord Alerts**: Instant notifications with rich embeds (TP/SL/RR details), **dual TradingView screenshots** (HTF context chart + LTF entry chart), and automated optimizer updates.
 - 🕒 **Weekend Optimization Protocol**: Automatically reduces Railway compute costs by 75% on weekends by skipping 15-minute cron intervals, completely blacking out closed TradFi markets, and lowering Crypto scraping to scalp-only timeframes.
 - 🎯 **Smart Confidence Scoring**:
@@ -320,6 +321,12 @@ Arcane-Portal/
   - **Base Timeframe Upgrade**: Shifted the default base timeframe for all Mango Dashboard calculations and native signals from `"4H"` to `"1D"` to capture macro structural trends more reliably.
   - **Scraping Coverage Expansion**: Added 4 highly requested crypto assets to both TradingView and Mango Research Dashboard scraping pipelines: `TRXUSDT`, `INJUSDT`, `ONDOUSDT`, and `NEARUSDT`.
   - **Enriched Discord Embeds & Technical Flags**: Enhanced standard TV and Mango-native alerts to display the active timeframe (`📊 Timeframe: 1D`) and format guide-matching technical flags with color-coded bullet points (🟢 green for bullish/confirming flags like `Golden Cross` or `Cheap / Discount`, 🔴 red for contrarian/bearish flags like `Death Cross` or `Expensive / Premium`).
+
+- **Strategy Backtester & Parameter Optimization (Option C Integration)**:
+  - **Core Backtest Engine ([backtest_engine.py](file:///c:/Users/wasif/Documents/Arcane%20Portal/backtester/backtest_engine.py))**: Implemented historical trade simulation logic, dynamic column mappings with priority strings, and wick-based stop-loss/take-profit hit tracking.
+  - **Grid-Search Optimizer ([parameter_optimizer.py](file:///c:/Users/wasif/Documents/Arcane%20Portal/backtester/parameter_optimizer.py))**: Exhaustive parameter sweep optimization testing multiple configuration ranges of stop-loss buffers, baseline/aggressive reward ratios, and dynamic zone filters.
+  - **Saved Backtests Persistence & Comparisons**: Leveraged PostgreSQL/SQLite database schemas to securely save backtest results, manage runs, and compare multiple configurations side-by-side.
+  - **Streamlit UI Integration**: Integrated the `"🧪 Backtest Optimizer"` tab in the main Streamlit dashboard.
 
 - **Mango Research Scraper & Dynamic Volatility Resolution (NEW)**:
   - **Sequential Tab Scraping**: Refactored the Playwright scraper into sequential, fully-isolated Crypto and TradFi scraping phases with 8-second tab-switching delays to prevent memory leaks and timeouts on Railway.
