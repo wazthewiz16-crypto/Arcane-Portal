@@ -8,7 +8,7 @@ def map_columns(df: pd.DataFrame) -> Dict[str, str]:
     cols = {c: c.strip().lower() for c in df.columns}
     mapping = {}
     
-    # Standard price fields
+    # 1. Map standard price fields
     for orig, clean in cols.items():
         if clean == 'time': mapping['time'] = orig
         elif clean == 'open': mapping['open'] = orig
@@ -16,15 +16,51 @@ def map_columns(df: pd.DataFrame) -> Dict[str, str]:
         elif clean == 'low': mapping['low'] = orig
         elif clean == 'close': mapping['close'] = orig
         elif clean == 'volume': mapping['volume'] = orig
-        
-        # New indicators
-        elif ('mutanabby' in clean and 'buy' in clean) or clean in ['buy', 'buy_sig', 'buy_signal', 'buyop']: mapping['buy_sig'] = orig
-        elif ('mutanabby' in clean and 'sell' in clean) or clean in ['sell', 'sell_sig', 'sell_signal']: mapping['sell_sig'] = orig
-        elif ('tk' in clean and 'bull' in clean) or clean in ['tk_bull', 'tk_bull_cross', 'tk bull cross']: mapping['tk_bull'] = orig
-        elif ('tk' in clean and 'bear' in clean) or clean in ['tk_bear', 'tk_bear_cross', 'tk bear cross']: mapping['tk_bear'] = orig
-        
-        # Mango Dynamic zones
-        elif 'entry zone upper' in clean or 'entryzoneupper' in clean: mapping['zone_upper'] = orig
+
+    # 2. Prioritized indicator matching: search for "mutanabby" or "tk" first
+    for orig, clean in cols.items():
+        if 'mutanabby' in clean and 'buy' in clean:
+            mapping['buy_sig'] = orig
+            break
+    if 'buy_sig' not in mapping:
+        for orig, clean in cols.items():
+            if clean in ['buy', 'buy_sig', 'buy_signal', 'buyop']:
+                mapping['buy_sig'] = orig
+                break
+
+    for orig, clean in cols.items():
+        if 'mutanabby' in clean and 'sell' in clean:
+            mapping['sell_sig'] = orig
+            break
+    if 'sell_sig' not in mapping:
+        for orig, clean in cols.items():
+            if clean in ['sell', 'sell_sig', 'sell_signal']:
+                mapping['sell_sig'] = orig
+                break
+
+    for orig, clean in cols.items():
+        if 'tk' in clean and 'bull' in clean:
+            mapping['tk_bull'] = orig
+            break
+    if 'tk_bull' not in mapping:
+        for orig, clean in cols.items():
+            if clean in ['tk_bull', 'tk_bull_cross', 'tk bull cross']:
+                mapping['tk_bull'] = orig
+                break
+
+    for orig, clean in cols.items():
+        if 'tk' in clean and 'bear' in clean:
+            mapping['tk_bear'] = orig
+            break
+    if 'tk_bear' not in mapping:
+        for orig, clean in cols.items():
+            if clean in ['tk_bear', 'tk_bear_cross', 'tk bear cross']:
+                mapping['tk_bear'] = orig
+                break
+
+    # 3. Map dynamic zones and boundaries
+    for orig, clean in cols.items():
+        if 'entry zone upper' in clean or 'entryzoneupper' in clean: mapping['zone_upper'] = orig
         elif 'entry zone lower' in clean or 'entryzonelower' in clean: mapping['zone_lower'] = orig
         elif 'mangod1' in clean: mapping['d1'] = orig
         elif 'mangod2' in clean: mapping['d2'] = orig
