@@ -24,6 +24,13 @@ TV_STATE_FILE = PROJECT_ROOT / "tv_state.json"
 # Signal Confidence Thresholds (Lowered post-Phase 3: pruned combos + asset RR handle quality)
 MIN_CONFIDENCE_SWING = float(os.getenv("MIN_CONFIDENCE_SWING", "65"))  # Was 72
 MIN_CONFIDENCE_SCALP = float(os.getenv("MIN_CONFIDENCE_SCALP", "70"))  # Was 75
+MANGO_VOLATILITY_THRESHOLD = float(os.getenv("MANGO_VOLATILITY_THRESHOLD", "85"))
+
+# Macro Trend & LTF Ribbon Alignment Filters
+ALLOW_SWING_WEEKLY_MISMATCH = os.getenv("ALLOW_SWING_WEEKLY_MISMATCH", "true").lower() == "true"
+ALLOW_SCALP_DAILY_MISMATCH = os.getenv("ALLOW_SCALP_DAILY_MISMATCH", "true").lower() == "true"
+ALLOW_SCALP_WEEKLY_MISMATCH = os.getenv("ALLOW_SCALP_WEEKLY_MISMATCH", "true").lower() == "true"
+STRICT_SCALP_LTF_ALIGNMENT = os.getenv("STRICT_SCALP_LTF_ALIGNMENT", "false").lower() == "true"
 
 # Streamlit Configuration
 STREAMLIT_SERVER_PORT = int(os.getenv("STREAMLIT_SERVER_PORT", "8501"))

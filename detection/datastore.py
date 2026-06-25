@@ -26,6 +26,15 @@ class MangoDataStore:
         if not USE_POSTGRES:
             DB_PATH.parent.mkdir(exist_ok=True)
         self.init_db()
+        # Migrate SL_BUFFER_PCT_SCALP default from 0.008 to 0.012 if stored in DB
+        try:
+            current_buffer = self.get_setting("SL_BUFFER_PCT_SCALP")
+            if current_buffer == "0.008":
+                self.set_setting("SL_BUFFER_PCT_SCALP", "0.012")
+                logger.info("Migrated database setting SL_BUFFER_PCT_SCALP from 0.008 to 0.012")
+        except Exception as e:
+            logger.warning(f"Could not migrate SL_BUFFER_PCT_SCALP setting: {e}")
+            
         # Auto-expire orphaned ACTIVE signals on every startup
         try:
             self.expire_stale_signals()
@@ -561,8 +570,8 @@ class MangoDataStore:
             return self._fetch_query(conn, """
                 SELECT * FROM signals
                 WHERE status = 'ACTIVE'
-                AND entry_time >= ?
-                ORDER BY entry_time DESC
+                AND created_at >= ?
+                ORDER BY created_at DESC
             """, (cutoff,))
     
     def expire_stale_signals(self, max_age_days: int = 5):
@@ -579,7 +588,7 @@ class MangoDataStore:
                 UPDATE signals
                 SET status = 'EXPIRED', updated_at = ?
                 WHERE status = 'ACTIVE'
-                AND entry_time < ?
+                AND created_at < ?
             """, (now, cutoff))
             if hasattr(result, 'rowcount') and result.rowcount:
                 logger.info(f"Expired {result.rowcount} stale ACTIVE signal(s) older than {max_age_days} days")
@@ -601,7 +610,7 @@ class MangoDataStore:
                 SET status = 'EXPIRED', updated_at = ?
                 WHERE status = 'ACTIVE'
                 AND signal_type LIKE '%SCALP%'
-                AND entry_time < ?
+                AND created_at < ?
             """, (now, cutoff))
             if hasattr(result, 'rowcount') and result.rowcount and result.rowcount > 0:
                 logger.info(f"Auto-expired {result.rowcount} scalp signal(s) older than {max_age_hours} hours")
@@ -620,7 +629,7 @@ class MangoDataStore:
                 res1 = self._execute_query(conn, """
                     DELETE FROM signal_images 
                     WHERE signal_id IN (
-                        SELECT id FROM signals WHERE entry_time < ?
+                        SELECT id FROM signals WHERE created_at < ?
                     )
                 """, (img_cutoff,))
                 if hasattr(res1, 'rowcount') and res1.rowcount and res1.rowcount > 0:
@@ -652,8 +661,8 @@ class MangoDataStore:
         with self.get_connection() as conn:
             return self._fetch_query(conn, """
                 SELECT * FROM signals
-                WHERE entry_time >= ?
-                ORDER BY entry_time DESC
+                WHERE created_at >= ?
+                ORDER BY created_at DESC
             """, (cutoff,))
     
     def mark_signal_alerted(self, signal_id):

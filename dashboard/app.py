@@ -727,6 +727,183 @@ def render_dynamic_levels(datastore):
             
             st.divider()
 
+def render_backtest_optimizer():
+    """Render the Backtesting and Parameter Optimization Tab"""
+    st.subheader("🧪 Trading Strategy Backtester & Parameter Sweep")
+    
+    st.markdown("""
+    This backtester allows you to simulate historical trading performance of your **Mutanabby_AI** and **Mango Ribbon (TK Cross)** trading strategy.
+    
+    ### How to get the CSV data:
+    1. Open your **TradingView chart** with the backtesting layout.
+    2. Ensure the indicator style settings have **Mutanabby Buy/Sell** signals and **TK Bull/Bear crosses** visible/enabled for export.
+    3. Click the **Chart Menu** (top left/right) -> **Export chart data** -> Choose **UNIX timestamp** or **ISO time**.
+    4. Save the file and upload it here.
+    """)
+    
+    # 1. File Uploader
+    uploaded_file = st.file_uploader("Upload TradingView Export (CSV or Tab-Separated TXT)", type=["csv", "txt"])
+    
+    if uploaded_file is not None:
+        # Import engine and optimizer locally
+        from backtester.backtest_engine import load_data, run_backtest
+        from backtester.parameter_optimizer import run_optimization_sweep
+        
+        # Load the data
+        df, mapping = load_data(uploaded_file)
+        
+        if df is None or not mapping:
+            st.error("❌ Failed to parse the uploaded file. Please ensure it is a valid TradingView export with time, open, high, low, close columns.")
+            return
+            
+        # Data success feedback
+        st.success(f"✅ Successfully loaded **{len(df)}** rows of historical data.")
+        
+        # Show detected column mappings in an expander
+        with st.expander("🔍 Column Mapping & Data Preview"):
+            st.markdown("Below are the detected mappings from your CSV headers to indicator fields:")
+            mapping_data = []
+            for k, v in mapping.items():
+                mapping_data.append({"Indicator Field": k, "CSV Column Name": v})
+            st.dataframe(pd.DataFrame(mapping_data))
+            st.markdown("First few rows of parsed data:")
+            st.dataframe(df.head(5))
+            
+        # Create tabs inside the backtester view: Simulation vs Sweep
+        sub_tab1, sub_tab2 = st.tabs(["📊 Strategy Simulation", "⚡ Parameter Sweep (Grid Search)"])
+        
+        with sub_tab1:
+            st.markdown("### Configure Backtest Parameters")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                sl_buffer_pct = st.slider("Stop Loss Buffer (%)", min_value=0.0, max_value=5.0, value=1.2, step=0.1, help="Buffer distance below Zone Lower (for longs) or above Zone Upper (for shorts)")
+                min_risk_pct_val = st.slider("Minimum Risk Floor (%)", min_value=0.5, max_value=5.0, value=2.2, step=0.1, help="Minimum distance for SL to protect against too-tight stops")
+                rr_ratio_val = st.number_input("Baseline Take Profit R:R Ratio", min_value=0.5, max_value=10.0, value=1.8, step=0.1, help="Target risk-to-reward ratio for standard signal entries")
+                
+            with col2:
+                aggressive_rr_ratio_val = st.number_input("Aggressive Take Profit R:R Ratio (Confluence)", min_value=0.5, max_value=10.0, value=2.5, step=0.1, help="Target risk-to-reward ratio when TK Cross confluence exists")
+                aggressive_lookback_val = st.slider("TK Cross Confluence Lookback (candles)", min_value=0, max_value=10, value=3, help="Number of candles prior to Mutanabby signal to search for TK cross")
+                use_dynamic_zone_val = st.checkbox("Filter by Mango Dynamic Zone", value=True, help="Only entry signals that close within the Entry Zone Upper/Lower boundaries are executed")
+                max_bars_held_val = st.number_input("Max Bars Held (Time Exit, 0 to disable)", min_value=0, max_value=200, value=0, help="Force exit trades after this many bars regardless of TP/SL")
+
+            # Run Backtest
+            params = {
+                'sl_buffer': sl_buffer_pct / 100.0,
+                'min_risk_pct': min_risk_pct_val / 100.0,
+                'rr_ratio': rr_ratio_val,
+                'aggressive_rr_ratio': aggressive_rr_ratio_val,
+                'aggressive_lookback': aggressive_lookback_val,
+                'use_dynamic_zone': use_dynamic_zone_val,
+                'max_bars_held': max_bars_held_val
+            }
+            
+            metrics = run_backtest(df, mapping, params)
+            
+            if metrics['total_trades'] == 0:
+                st.warning("⚠️ No trades were executed with the current parameters and data. Ensure your CSV has Mutanabby buy/sell signals.")
+            else:
+                # Display metrics cards
+                st.markdown("### Simulation Results")
+                m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
+                
+                with m_col1:
+                    st.metric("Total Trades", f"{metrics['total_trades']}")
+                with m_col2:
+                    st.metric("Win Rate", f"{metrics['win_rate_pct']}%")
+                with m_col3:
+                    st.metric("Net Profit (R)", f"{metrics['net_profit_r']} R")
+                with m_col4:
+                    st.metric("Profit Factor", f"{metrics['profit_factor']}")
+                with m_col5:
+                    st.metric("Max Drawdown (R)", f"{metrics['max_drawdown_r']} R")
+                    
+                # Extra metric check
+                st.info(f"Cumulative percentage return of simulated trades: **{metrics['net_profit_pct']:.2f}%** (assuming fixed trade sizing)")
+
+                # Plot Cumulative returns
+                trades_df = pd.DataFrame(metrics['trades'])
+                trades_df['trade_num'] = range(1, len(trades_df) + 1)
+                trades_df['cumulative_r'] = trades_df['r_return'].cumsum()
+                
+                st.markdown("#### Cumulative R-Return Curve")
+                chart_data = trades_df.set_index('trade_num')[['cumulative_r']]
+                st.line_chart(chart_data)
+                
+                # Detailed trade history
+                with st.expander("📜 View Detailed Trade Log"):
+                    display_df = trades_df.copy()
+                    # Format entry/exit time displays if they are unix timestamps
+                    try:
+                        # Convert to timestamp if it is numerical, else keep as is
+                        if pd.api.types.is_numeric_dtype(display_df['entry_time']):
+                            display_df['entry_time'] = pd.to_datetime(display_df['entry_time'], unit='s', errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                        if pd.api.types.is_numeric_dtype(display_df['exit_time']):
+                            display_df['exit_time'] = pd.to_datetime(display_df['exit_time'], unit='s', errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                    except Exception as e:
+                        logger.warning(f"Error formatting timestamps in trade log: {e}")
+                    
+                    st.dataframe(display_df[[
+                        'entry_time', 'exit_time', 'type', 'entry_price', 
+                        'exit_price', 'stop_loss', 'take_profit', 'result', 
+                        'r_return', 'percent_return', 'aggressive'
+                    ]])
+        
+        with sub_tab2:
+            st.markdown("### Parameter Sweep Optimizer")
+            st.write("Grid search sweeps will test multiple combinations of SL buffers, risk floors, and reward ratios to mathematically identify the highest-performing configurations.")
+            
+            # Configure Sweep Ranges
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                sweep_sl_buffers = st.multiselect("SL Buffers to test (%)", options=[0.5, 0.8, 1.0, 1.2, 1.5, 2.0], default=[0.8, 1.2, 1.5], help="Percentage buffer added to the dynamic zone borders.")
+                sweep_min_risk = st.multiselect("Min Risk Floors to test (%)", options=[1.5, 1.8, 2.2, 2.5, 3.0], default=[1.8, 2.2], help="Protects against tiny risk calculations causing extremely tight stops.")
+                sweep_zone_filter = st.multiselect("Filter by Zone", options=[True, False], default=[True])
+            with col_s2:
+                sweep_rr = st.multiselect("Baseline R:R to test", options=[1.2, 1.5, 1.8, 2.0, 2.2], default=[1.5, 1.8, 2.0])
+                sweep_agg_rr = st.multiselect("Aggressive R:R to test", options=[2.0, 2.5, 3.0, 3.5], default=[2.5, 3.0])
+                
+            sweep_button = st.button("🚀 Run Parameter Sweep")
+            
+            if sweep_button:
+                if not sweep_sl_buffers or not sweep_min_risk or not sweep_rr or not sweep_agg_rr:
+                    st.error("Please select at least one value for each parameter range.")
+                else:
+                    sweep_config = {
+                        'sl_buffers': [b / 100.0 for b in sweep_sl_buffers],
+                        'min_risk_pcts': [r / 100.0 for r in sweep_min_risk],
+                        'rr_ratios': sweep_rr,
+                        'aggressive_rr_ratios': sweep_agg_rr,
+                        'use_dynamic_zone': sweep_zone_filter
+                    }
+                    
+                    with st.spinner("Running parameter sweeps... This may take a few moments."):
+                        sweep_results = run_optimization_sweep(df, mapping, sweep_config)
+                        
+                    st.success(f"Sweep complete! Tested {len(sweep_results)} configurations.")
+                    
+                    # Convert to dataframe for display
+                    sweep_df = pd.DataFrame(sweep_results)
+                    # Convert back to percent for user-friendly table
+                    sweep_df['sl_buffer (%)'] = sweep_df['sl_buffer'] * 100.0
+                    sweep_df['min_risk_pct (%)'] = sweep_df['min_risk_pct'] * 100.0
+                    
+                    display_cols = [
+                        'sl_buffer (%)', 'min_risk_pct (%)', 'rr_ratio', 
+                        'aggressive_rr_ratio', 'use_dynamic_zone', 'total_trades', 
+                        'win_rate_pct', 'net_profit_r', 'profit_factor', 'max_drawdown_r'
+                    ]
+                    
+                    st.markdown("#### Top 10 Configurations (Sorted by Net Profit R)")
+                    st.dataframe(sweep_df[display_cols].head(10))
+                    
+                    # Detailed results
+                    with st.expander("View Full Sweep Results"):
+                        st.dataframe(sweep_df[display_cols])
+    else:
+        st.info("💡 Please upload a TradingView CSV or TXT export file above to begin backtesting.")
+
 def main():
     """Main dashboard function"""
     
@@ -742,7 +919,7 @@ def main():
     render_system_health()
     
     # Main content tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["🚨 Active Signals", "📊 History", "👁️ Assets", "📈 Dynamic Levels"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🚨 Active Signals", "📊 History", "👁️ Assets", "📈 Dynamic Levels", "🧪 Backtest Optimizer"])
     
     with tab1:
         render_active_signals()
@@ -755,6 +932,9 @@ def main():
     
     with tab4:
         render_dynamic_levels(datastore)
+        
+    with tab5:
+        render_backtest_optimizer()
     
     # Auto-refresh
     if st.session_state.auto_refresh:

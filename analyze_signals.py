@@ -198,11 +198,16 @@ class SignalAnalyzer:
             total_closed = by_conf[b]['wins'] + by_conf[b]['losses']
             by_conf[b]['win_rate'] = round((by_conf[b]['wins'] / total_closed * 100) if total_closed > 0 else 0, 1)
 
+        # Get top 5 assets by signal count
+        top_5 = sorted(by_asset.items(), key=lambda x: x[1]['count'], reverse=True)[:5]
+        top_5_assets = [(k, v['count']) for k, v in top_5]
+
         return {
             'by_signal_type': dict(by_type),
             'by_timeframe': dict(by_ltf),
             'by_asset': dict(by_asset),
-            'by_confidence': dict(by_conf)
+            'by_confidence': dict(by_conf),
+            'top_5_assets': top_5_assets
         }
     
     def _generate_recommendations(self, metrics, breakdowns):

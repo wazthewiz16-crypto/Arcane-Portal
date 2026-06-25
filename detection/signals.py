@@ -47,7 +47,7 @@ class MangoSignalDetector:
         max_scalp = float(self.datastore.get_setting("MAX_CONFIDENCE_SCALP", 100))
         
         sl_buffer_swing = float(self.datastore.get_setting("SL_BUFFER_PCT_SWING", 0.015))
-        sl_buffer_scalp = float(self.datastore.get_setting("SL_BUFFER_PCT_SCALP", 0.008))
+        sl_buffer_scalp = float(self.datastore.get_setting("SL_BUFFER_PCT_SCALP", 0.012))
         
         blacklist_str = self.datastore.get_setting("ASSET_BLACKLIST", "")
         blacklist = [a.strip().upper() for a in blacklist_str.split(',') if a.strip()]
@@ -417,24 +417,25 @@ class MangoSignalDetector:
                 
             # 3. Volatility gate
             # Low volatility (blue) < 30 is safe and encouraged, do NOT block it (bypass any compression filters).
-            # High volatility (red) >= 80 indicates exhaustion, block completely.
-            if volatility >= 80:
-                logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - extreme volatility exhaustion ({volatility} >= 80).")
+            # High volatility (red) >= vol_threshold indicates exhaustion, block completely.
+            vol_threshold = float(self.datastore.get_setting("MANGO_VOLATILITY_THRESHOLD", settings.MANGO_VOLATILITY_THRESHOLD))
+            if volatility >= vol_threshold:
+                logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - extreme volatility exhaustion ({volatility} >= {vol_threshold}).")
                 return None
                 
-            # Check major timeframes (4H, 12H, 1D). If any has high (red) volatility >= 80, block
+            # Check major timeframes (4H, 12H, 1D). If any has high (red) volatility >= vol_threshold, block
             tf_vols = confluence.get('timeframe_volatilities', {})
             high_tf_vols = []
             for tf in ['4H', '12H', '1D']:
                 if tf in tf_vols:
                     try:
                         tf_vol = int(tf_vols[tf])
-                        if tf_vol >= 80:
+                        if tf_vol >= vol_threshold:
                             high_tf_vols.append(f"{tf}: {tf_vol}")
                     except (ValueError, TypeError):
                         pass
             if high_tf_vols:
-                logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - high timeframe volatility detected in {', '.join(high_tf_vols)} (exhaustion zone).")
+                logger.info(f"🚫 Mango Volatility BLOCKED: {asset_name} {signal['signal_type']} blocked - high timeframe volatility detected in {', '.join(high_tf_vols)} (exhaustion zone: >= {vol_threshold}).")
                 return None
 
             # Pull flags from confluence. Try specific LTF and HTF timeframe flags, and merge with base (1D) flags
@@ -587,7 +588,10 @@ class MangoSignalDetector:
                 if daily_dir and daily_dir != 'NEUTRAL' and daily_dir != htf_direction:
                     continue  # Fighting the Daily trend
                     
-            if weekly_data:
+            allow_weekly_mismatch_str = self.datastore.get_setting("ALLOW_SWING_WEEKLY_MISMATCH")
+            allow_swing_weekly_mismatch = str(allow_weekly_mismatch_str).lower() == 'true' if allow_weekly_mismatch_str is not None else settings.ALLOW_SWING_WEEKLY_MISMATCH
+
+            if weekly_data and not allow_swing_weekly_mismatch:
                 weekly_dir = self._get_htf_direction(weekly_data)
                 if weekly_dir and weekly_dir != 'NEUTRAL' and weekly_dir != htf_direction:
                     continue  # Fighting the Weekly/4D trend
@@ -677,7 +681,7 @@ class MangoSignalDetector:
         
         return None
     
-    def _detect_scalp_signal(self, name: str, timeframes: Dict, sl_buffer: float = 0.008) -> Optional[Dict]:
+    def _detect_scalp_signal(self, name: str, timeframes: Dict, sl_buffer: float = 0.012) -> Optional[Dict]:
         """
         Detect scalp signal (LTF-based quick trade)
         
@@ -707,8 +711,11 @@ class MangoSignalDetector:
             
             # --- Grandmaster Filter (Daily Trend Check) ---
             # Ensure scalp direction aligns with Daily trend
+            allow_daily_str = self.datastore.get_setting("ALLOW_SCALP_DAILY_MISMATCH")
+            allow_scalp_daily_mismatch = str(allow_daily_str).lower() == 'true' if allow_daily_str is not None else settings.ALLOW_SCALP_DAILY_MISMATCH
+
             daily_data = timeframes.get('1d')
-            if daily_data:
+            if daily_data and not allow_scalp_daily_mismatch:
                 daily_dir = self._get_htf_direction(daily_data)
                 
                 # Loose: Scalps must never fight the Daily trend.
@@ -721,8 +728,11 @@ class MangoSignalDetector:
             # --- 4D Trend Agreement (Macro Alignment) ---
             # Scalps must never fight the weekly (4D) trend direction.
             # Prevents longing into a macro downtrend, or shorting into a macro bull market.
+            allow_weekly_str = self.datastore.get_setting("ALLOW_SCALP_WEEKLY_MISMATCH")
+            allow_scalp_weekly_mismatch = str(allow_weekly_str).lower() == 'true' if allow_weekly_str is not None else settings.ALLOW_SCALP_WEEKLY_MISMATCH
+
             weekly_data = timeframes.get('4d')
-            if weekly_data:
+            if weekly_data and not allow_scalp_weekly_mismatch:
                 weekly_dir = self._get_htf_direction(weekly_data)
                 if htf_direction == 'LONG' and weekly_dir == 'SHORT':
                     continue  # Don't scalp long against a bearish 4D trend
@@ -733,11 +743,15 @@ class MangoSignalDetector:
             # --- LTF Ribbon Confirmation (Critical / Strict) ---
             # The 15m Mango Dynamic ribbon *itself* must EXPLICITLY agree with the trade direction.
             # NEUTRAL is NOT allowed — it means the ribbon has not fully confirmed the scalp momentum yet.
-            ltf_ribbon_dir = self._get_htf_direction(ltf_data)
-            if htf_direction == 'LONG' and ltf_ribbon_dir != 'LONG':
-                continue  # 15m ribbon must be explicitly bullish for a scalp LONG
-            if htf_direction == 'SHORT' and ltf_ribbon_dir != 'SHORT':
-                continue  # 15m ribbon must be explicitly bearish for a scalp SHORT
+            strict_ltf_str = self.datastore.get_setting("STRICT_SCALP_LTF_ALIGNMENT")
+            strict_scalp_ltf_alignment = str(strict_ltf_str).lower() == 'true' if strict_ltf_str is not None else settings.STRICT_SCALP_LTF_ALIGNMENT
+
+            if strict_scalp_ltf_alignment:
+                ltf_ribbon_dir = self._get_htf_direction(ltf_data)
+                if htf_direction == 'LONG' and ltf_ribbon_dir != 'LONG':
+                    continue  # 15m ribbon must be explicitly bullish for a scalp LONG
+                if htf_direction == 'SHORT' and ltf_ribbon_dir != 'SHORT':
+                    continue  # 15m ribbon must be explicitly bearish for a scalp SHORT
             # ------------------------------------------
             
             # --- Candle Color Check (Scalp Only) ---
@@ -1192,14 +1206,14 @@ class MangoSignalDetector:
         
         # Small buffer beyond Mango Dynamic boundaries
         if buffer_pct is None:
-            buffer_pct = 0.008 if is_scalp else 0.015
+            buffer_pct = 0.012 if is_scalp else 0.015
         
         # Define a minimum SL distance to avoid micro-wicks stopping us out instantly
         if is_scalp:
             if asset_type == 'crypto':
-                MIN_RISK_PCT = 0.018  # 1.8% min SL for crypto scalps
+                MIN_RISK_PCT = 0.022  # 2.2% min SL for crypto scalps
             else:
-                MIN_RISK_PCT = 0.015  # 1.5% min SL for tradfi scalps
+                MIN_RISK_PCT = 0.018  # 1.8% min SL for tradfi scalps
         else:
             if asset_type == 'tradfi':
                 MIN_RISK_PCT = 0.020  # 2% SL for tradfi swings

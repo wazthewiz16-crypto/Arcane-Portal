@@ -178,10 +178,10 @@ class AutoOptimizer:
             if metrics['losers'] >= 5 and metrics['win_rate_pct'] < 30:
                 logger.info(f"Systemic bleed detected (WR: {metrics['win_rate_pct']}%). Widening SL buffers for chop protection.")
                 updates['SL_BUFFER_PCT_SWING'] = 0.025
-                updates['SL_BUFFER_PCT_SCALP'] = 0.012
+                updates['SL_BUFFER_PCT_SCALP'] = 0.016
             elif metrics['win_rate_pct'] > 45:
                 updates['SL_BUFFER_PCT_SWING'] = 0.015
-                updates['SL_BUFFER_PCT_SCALP'] = 0.008
+                updates['SL_BUFFER_PCT_SCALP'] = 0.012
 
         # 3e. Market Regime Detection (TRENDING vs RANGING)
         regime_result = self.regime_detector.detect_regime(lookback_hours=4)
@@ -640,7 +640,7 @@ class AutoOptimizer:
             cap_val is not None or
             (blacklist and str(blacklist).strip()) or
             (max_scalp is not None and float(max_scalp) < 100) or
-            (sl_scalp is not None and float(sl_scalp) > 0.008)
+            (sl_scalp is not None and float(sl_scalp) > 0.012)
         )
         
         if has_safeties:
@@ -655,7 +655,7 @@ class AutoOptimizer:
                 msg += f"• **Toxic Assets Benched**: `{blacklist}`\n"
             if max_scalp is not None and float(max_scalp) < 100:
                 msg += f"• **Max Confidence Cap**: `88%` (Filtering late 'perfect' setups)\n"
-            if sl_scalp is not None and float(sl_scalp) > 0.008:
+            if sl_scalp is not None and float(sl_scalp) > 0.012:
                 msg += f"• **Dynamic SL**: Buffers widened for chop protection\n"
 
         notifier.send_message(msg)
