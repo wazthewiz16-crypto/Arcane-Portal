@@ -25,7 +25,27 @@ class MangoDataStore:
     def __init__(self):
         if not USE_POSTGRES:
             DB_PATH.parent.mkdir(exist_ok=True)
-        self.init_db()
+            
+        # Check database version to avoid running table creation and migrations (ALTER TABLE)
+        # on every instantiation. This prevents AccessExclusiveLock deadlocks on PostgreSQL.
+        current_version = 0
+        try:
+            val = self.get_setting("DB_VERSION")
+            if val:
+                current_version = int(val)
+        except Exception:
+            current_version = 0
+
+        LATEST_VERSION = 2
+        if current_version < LATEST_VERSION:
+            logger.info(f"Database version {current_version} is less than latest {LATEST_VERSION}. Running migrations...")
+            self.init_db()
+            try:
+                self.set_setting("DB_VERSION", str(LATEST_VERSION))
+                logger.info(f"Database successfully migrated/initialized to version {LATEST_VERSION}")
+            except Exception as e:
+                logger.warning(f"Could not set DB_VERSION: {e}")
+        
         # Migrate SL_BUFFER_PCT_SCALP default from 0.008 to 0.012 if stored in DB
         try:
             current_buffer = self.get_setting("SL_BUFFER_PCT_SCALP")
