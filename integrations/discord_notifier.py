@@ -600,13 +600,21 @@ class DiscordNotifier:
                 status_text = "🔴 RANGING (All Trading Halted)"
                 
             is_morning = "Morning" in time_of_day
+            is_evening = "Evening" in time_of_day
             
-            desc = (
-                f"**Daily Check Stage:** `{time_of_day}`\n"
-                f"**Detected Market State:** `{regime}` (Confidence: {confidence:.0f}%)\n"
-                f"**System Target Action:** **{status_text}**\n\n"
-                f"**Rationale:**\n{reason}\n"
-            )
+            if is_evening:
+                desc = (
+                    f"**Check Stage:** `{time_of_day}`\n"
+                    f"**Final Active Market Regime:** **{status_text}**\n\n"
+                    f"**EOD Market Rationale:**\n{reason}\n"
+                )
+            else:
+                desc = (
+                    f"**Daily Check Stage:** `{time_of_day}`\n"
+                    f"**Detected Market State:** `{regime}` (Confidence: {confidence:.0f}%)\n"
+                    f"**System Target Action:** **{status_text}**\n\n"
+                    f"**Rationale:**\n{reason}\n"
+                )
             
             # ── Overnight moves (Morning Brief Only) ──
             if is_morning:
@@ -630,6 +638,42 @@ class DiscordNotifier:
                         desc += f"   • **{l['name']}**: `{l['change']:.1%}` (${l['prev_price']:.{dec}f} → ${l['curr_price']:.{dec}f})\n"
                 else:
                     desc += "   • *No overnight losers found.*\n"
+            elif is_evening:
+                desc += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                # Full day returns
+                net_ret = results.get('net_session_return', 0.0)
+                bias_lbl = "Bullish Bias" if net_ret > 0 else ("Bearish Bias" if net_ret < 0 else "Neutral Bias")
+                sign = "+" if net_ret > 0 else ""
+                desc += f"**📊 Full Day Session Return (6 AM - 9 PM EST):**\n"
+                desc += f"• Watchlist Net Move: `{sign}{net_ret:.2%}` ({bias_lbl})\n"
+                
+                gainers = results.get('session_gainers', [])
+                if gainers:
+                    g_strs = [f"**{g['name']}** (+{g['change']:.1%})" for g in gainers]
+                    desc += f"• Top Day Gainers: {', '.join(g_strs)}\n"
+                losers = results.get('session_losers', [])
+                if losers:
+                    l_strs = [f"**{l['name']}** ({l['change']:.1%})" for l in losers]
+                    desc += f"• Top Day Losers: {', '.join(l_strs)}\n"
+                
+                # Full day signals recap
+                desc += f"\n**⚡ Today's Signals Recap:**\n"
+                desc += f"• Total Signals Triggered: `{results.get('today_signals_count', 0)}`\n"
+                pnl = results.get('realized_pnl', 0.0)
+                pnl_sign = "+" if pnl > 0 else ""
+                desc += f"• Realized PnL today: `{pnl_sign}{pnl:.2f}R`\n"
+                desc += f"• Stopped Out count: `{results.get('stopped_out_count', 0)}`\n"
+                
+                # List of signals triggered today
+                signals_list = results.get('signals_list', [])
+                if signals_list:
+                    desc += "\n**📋 Today's Executed Trades:**\n"
+                    for s in signals_list:
+                        status_emoji = "🟢" if s['status'] == 'TP_HIT' else ("🔴" if s['status'] == 'SL_HIT' else ("🟡" if s['status'] == 'BREAKEVEN' else "⚡"))
+                        pnl_str = f"+{s['pnl']:.1f}R" if s['pnl'] > 0 else (f"{s['pnl']:.1f}R" if s['pnl'] < 0 else "0.0R")
+                        desc += f"  • {status_emoji} **{s['asset_name']}** ({s['signal_type']}): `{s['status']}` ({pnl_str}) @ ${s['entry_price']:.4f}\n"
+                else:
+                    desc += "\n*No trade signals were triggered today.*\n"
             else:
                 desc += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 desc += f"**🔄 Regime Transition:** `{results.get('morning_pred', 'N/A')}` ➔ **`{decision}`**\n"
@@ -707,7 +751,13 @@ class DiscordNotifier:
                 cap = "1 position max (scalps only)" if decision == 'RANGING_SCALPS_ONLY' else ("0 positions (all halted)" if decision == 'RANGING_NO_TRADE' else "2 positions max (standard)")
                 desc += f"• Altcoin Correlation Cap: `{cap}`\n"
             
-            title = f"🧠 Morning Trading Brief & Regime Prediction — {date_str}" if is_morning else f"🔍 Afternoon Regime Verification — {date_str}"
+            if is_morning:
+                title = f"🧠 Morning Trading Brief & Regime Prediction — {date_str}"
+            elif is_evening:
+                title = f"🌙 End of Day Summary & Outlook — {date_str}"
+                color = 0x34495E  # Sleek Dark Gray/Blue
+            else:
+                title = f"🔍 Afternoon Regime Verification — {date_str}"
             
             embed = {
                 "title": title,

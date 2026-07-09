@@ -342,18 +342,28 @@ async def run_scraper_and_detect():
                 except Exception as de:
                     print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
             
-    # Step 3b: Daily Regime Checks (Morning check at 6 AM EST, Afternoon check at 1 PM EST)
-    target_regime_hours = [6, 13]
+    # Step 3b: Daily Regime Checks (Morning check at 6 AM EST, Afternoon check at 1 PM EST, Evening check at 9 PM EST)
+    target_regime_hours = [6, 13, 21]
     if now.hour in target_regime_hours:
-        check_type = "morning" if now.hour == 6 else "afternoon"
+        if now.hour == 6:
+            check_type = "morning"
+        elif now.hour == 13:
+            check_type = "afternoon"
+        else:
+            check_type = "evening"
+            
         current_regime_key = f"{now.strftime('%Y-%m-%d')}-{check_type}"
         last_regime_run = datastore.get_setting(f"LAST_DAILY_REGIME_{check_type.upper()}_KEY")
         
         if last_regime_run != current_regime_key:
-            print(f"\n[STEP 3b] Running Daily Regime Check ({check_type} prediction/verification EST)...")
+            print(f"\n[STEP 3b] Running Daily Regime Check ({check_type} prediction/verification/summary EST)...")
             try:
                 from detection.daily_regime import execute_daily_regime_check
-                execute_daily_regime_check(datastore, is_afternoon=(check_type == "afternoon"))
+                execute_daily_regime_check(
+                    datastore, 
+                    is_afternoon=(check_type == "afternoon"), 
+                    is_evening=(check_type == "evening")
+                )
                 datastore.set_setting(f"LAST_DAILY_REGIME_{check_type.upper()}_KEY", current_regime_key)
                 print(f"[OK] Daily Regime Check ({check_type}) run successfully logged.")
             except Exception as e:

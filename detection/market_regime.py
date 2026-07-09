@@ -156,19 +156,38 @@ class MarketRegimeDetector:
         Compute regime features from recent scrape data.
         Uses the LATEST scrape per asset per timeframe within the lookback window.
         """
+        from detection.datastore import USE_POSTGRES
         with self.datastore.get_connection() as conn:
             # Get latest scrapes for each asset (LTF: 15m, 1h)
-            rows = self.datastore._fetch_query(conn, """
-                SELECT DISTINCT ON (name, timeframe)
-                    name, timeframe, close, open, high, low,
-                    mango_d1, mango_d2, entry_up, entry_down,
-                    eq_band1, eq_band2, upper_vol_b, lower_vol_b
-                FROM scrapes
-                WHERE TO_TIMESTAMP(timestamp, 'YYYY-MM-DD"T"HH24:MI:SS')
-                      > NOW() - INTERVAL '%s hours'
-                  AND timeframe IN ('15m', '1h', '4h')
-                ORDER BY name, timeframe, timestamp DESC
-            """ % lookback_hours)
+            if USE_POSTGRES:
+                rows = self.datastore._fetch_query(conn, """
+                    SELECT DISTINCT ON (name, timeframe)
+                        name, timeframe, close, open, high, low,
+                        mango_d1, mango_d2, entry_up, entry_down,
+                        eq_band1, eq_band2, upper_vol_b, lower_vol_b
+                    FROM scrapes
+                    WHERE TO_TIMESTAMP(timestamp, 'YYYY-MM-DD"T"HH24:MI:SS')
+                          > NOW() - INTERVAL '%s hours'
+                      AND timeframe IN ('15m', '1h', '4h')
+                    ORDER BY name, timeframe, timestamp DESC
+                """ % lookback_hours)
+            else:
+                cutoff_utc = datetime.utcnow() - timedelta(hours=lookback_hours)
+                cutoff_iso = cutoff_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+                rows = self.datastore._fetch_query(conn, """
+                    SELECT name, timeframe, close, open, high, low,
+                           mango_d1, mango_d2, entry_up, entry_down,
+                           eq_band1, eq_band2, upper_vol_b, lower_vol_b
+                    FROM scrapes s1
+                    WHERE timestamp >= ?
+                      AND timeframe IN ('15m', '1h', '4h')
+                      AND timestamp = (
+                          SELECT MAX(timestamp) FROM scrapes s2
+                          WHERE s2.name = s1.name
+                            AND s2.timeframe = s1.timeframe
+                            AND s2.timestamp >= ?
+                      )
+                """, (cutoff_iso, cutoff_iso))
 
         if not rows or len(rows) < self.MIN_ASSETS_REQUIRED:
             return None

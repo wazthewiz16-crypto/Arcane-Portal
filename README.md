@@ -245,7 +245,19 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-06-09
+**Latest Update:** 2026-07-08
+
+- **End of Day Summary & Interactive Discord Command Bot (NEW)**:
+  - 🌙 **EOD Summary & Outlook (9:00 PM EST):** Extended the daily regime check framework to run an Evening EOD Check. Features full-day watchlist returns (6 AM - 9 PM EST), session top gainers/losers, daily signal execution stats (win rate, total trades, realized PnL in R-multipliers), and a bulleted list of today's executed trades with status emojis (🟢 TP_HIT, 🔴 SL_HIT, 🟡 BREAKEVEN, ⚡ ACTIVE).
+  - 🤖 **Discord Command Bot:** Created a standalone Discord bot client (`run_bot.py`) that runs 24/7 on Railway (`Procfile`). Listens for prefix commands:
+    - `!radar`: Triggers the Arcane Trade Radar and posts active trade metrics (distance-to-SL, R-multiple drift) to Discord.
+    - `!conditions`: Displays real-time regime decisions, circuit breaker state, altcoin correlation caps, and cached Mango metrics in a premium Discord embed.
+    - `!optimizer`: Triggers the auto-optimizer manually to adjust confidence thresholds.
+    - `!brief` / `!afternoon` / `!evening`: Triggers daily briefs on-demand.
+    - `!help`: Shows the custom bot command manual.
+  - 🔌 **Fail-Safe Design:** If `DISCORD_BOT_TOKEN` is not configured, the bot logs a clear warning and exits gracefully with code `0`, allowing Railway builds to deploy seamlessly without blockages.
+
+**Previous Update:** 2026-06-09
 
 - **Morning Trading Brief & Signal Frequency Optimizations (NEW)**:
   - 🧠 **Discord Morning Brief:** Transformed the 6:00 AM EST daily regime check into a comprehensive Morning Trading Brief. Displays overnight gainers and losers (comparing yesterday's 11:00 PM EST price scrapes to today's 6:00 AM EST scrapes), watchlist sentiment bias counts (LONG/SHORT/NEUTRAL badges parsed from the Mango Dashboard cache), BTC Dominance Cycle status, and altcoin correlation caps in a beautifully styled, color-coded Discord embed.

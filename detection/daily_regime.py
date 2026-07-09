@@ -57,11 +57,12 @@ def extract_mango_features(mango_row):
         'mango_avg_asset_volatility': mango_avg_asset_volatility
     }
 
-def execute_daily_regime_check(datastore, is_afternoon: bool = False):
+def execute_daily_regime_check(datastore, is_afternoon: bool = False, is_evening: bool = False):
     """
     Executes the daily market regime check:
     - Morning (6 AM EST): predicts if today is TRENDING or RANGING.
     - Afternoon (1 PM EST): verifies/corrects the morning prediction based on actual intraday price moves.
+    - Evening (9 PM EST): provides a summary of today's market performance and executed trades.
     """
     est = pytz.timezone('America/New_York')
     now_est = datetime.now(est)
@@ -100,7 +101,7 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
     except Exception as e:
         logger.warning(f"Error checking circuit breaker: {e}")
         
-    if not is_afternoon:
+    if not is_afternoon and not is_evening:
         # MORNING CHECK (6:00 AM EST)
         # Determine Daily Regime Decision
         if cb_active:
@@ -349,7 +350,7 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
         notifier.send_daily_regime_alert(results)
         
     else:
-        # AFTERNOON VERIFICATION (1:00 PM EST)
+        # AFTERNOON VERIFICATION (1:00 PM EST) or EVENING SUMMARY (9:00 PM EST)
         morning_pred = datastore.get_setting("DAILY_REGIME_MORNING_PRED", "TRENDING")
         
         # 1. Query scrapes since 5:00 AM EST today
@@ -436,18 +437,20 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
         trending_threshold = max(0.015, min(0.04, 0.8 * rolling_avg_range))
         ranging_threshold = max(0.008, min(0.02, 0.4 * rolling_avg_range))
 
-        # 3. Calculate morning session movers and directional bias (6 AM to 1 PM EST)
+        # 3. Calculate session movers and directional bias (6 AM to 1 PM or 6 AM to 9 PM EST)
         session_top_gainers = []
         session_top_losers = []
         net_session_return = 0.0
         try:
             today_6am_est = est.localize(datetime.combine(now_est.date(), time(6, 0)))
             today_6am_utc = today_6am_est.astimezone(pytz.utc)
-            today_1pm_est = est.localize(datetime.combine(now_est.date(), time(13, 0)))
-            today_1pm_utc = today_1pm_est.astimezone(pytz.utc)
+            
+            end_hour = 21 if is_evening else 13
+            today_end_est = est.localize(datetime.combine(now_est.date(), time(end_hour, 0)))
+            today_end_utc = today_end_est.astimezone(pytz.utc)
 
             session_6am = {}
-            session_1pm = {}
+            session_end = {}
             for s in scrapes:
                 name = s['name']
                 if name.upper() in ('BTCD', 'CRYPTOCAP:BTC.D'):
@@ -471,18 +474,18 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
                     continue
                     
                 diff_6am = abs((dt - today_6am_utc).total_seconds())
-                diff_1pm = abs((dt - today_1pm_utc).total_seconds())
+                diff_end = abs((dt - today_end_utc).total_seconds())
                 
                 if name not in session_6am or diff_6am < session_6am[name]['diff']:
                     session_6am[name] = {'close': close, 'timestamp': ts_str, 'diff': diff_6am}
-                if name not in session_1pm or diff_1pm < session_1pm[name]['diff']:
-                    session_1pm[name] = {'close': close, 'timestamp': ts_str, 'diff': diff_1pm}
+                if name not in session_end or diff_end < session_end[name]['diff']:
+                    session_end[name] = {'close': close, 'timestamp': ts_str, 'diff': diff_end}
 
             session_changes = []
             for name in session_6am:
-                if name in session_1pm:
+                if name in session_end:
                     p_close = session_6am[name]['close']
-                    c_close = session_1pm[name]['close']
+                    c_close = session_end[name]['close']
                     if p_close > 0:
                         change = (c_close - p_close) / p_close
                         session_changes.append({
@@ -504,13 +507,14 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
             crypto_changes = [x['change'] for x in session_changes if x['name'].upper() in crypto_watchlist]
             net_session_return = float(np.mean(crypto_changes)) if crypto_changes else 0.0
         except Exception as e:
-            logger.warning(f"Error calculating morning session changes: {e}")
+            logger.warning(f"Error calculating session changes: {e}")
 
         # 4. Query active signals feedback loop (realized PnL & stopped count since 6 AM today)
         today_signals_count = 0
         realized_pnl = 0.0
         stopped_out_count = 0
         safety_override_triggered = False
+        signals_list = []
         try:
             today_6am_est = est.localize(datetime.combine(now_est.date(), time(6, 0)))
             today_6am_utc = today_6am_est.astimezone(pytz.utc)
@@ -528,61 +532,82 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
                 for sig in today_signals:
                     status = sig['status'].upper()
                     rr = float(sig.get('rr_ratio') or (2.75 if 'SWING' in sig['signal_type'] else 1.75))
+                    
                     if status == 'TP_HIT':
+                        pnl_val = rr
                         realized_pnl += rr
                     elif status == 'SL_HIT':
+                        pnl_val = -1.0
                         realized_pnl -= 1.0
                         stopped_out_count += 1
+                    elif status == 'BREAKEVEN':
+                        pnl_val = 0.0
+                    else:
+                        pnl_val = 0.0  # Still active
+                        
+                    signals_list.append({
+                        'asset_name': sig['asset_name'],
+                        'signal_type': sig['signal_type'],
+                        'entry_price': float(sig['entry_price']),
+                        'status': status,
+                        'pnl': pnl_val
+                    })
                         
                 if stopped_out_count >= 3 or realized_pnl <= -2.0:
                     safety_override_triggered = True
         except Exception as e:
             logger.warning(f"Error checking active signals feedback loop: {e}")
 
-        # Verification Logic
-        if cb_active:
-            decision = 'RANGING_SCALPS_ONLY'
-            reason = "Afternoon check: Circuit Breaker is active. Maintaining standard safety limits (RANGING_SCALPS_ONLY)."
-        elif avg_daily_range > trending_threshold or regime == 'TRENDING':
-            decision = 'TRENDING'
-            if morning_pred == 'TRENDING':
-                reason = f"Trending day confirmed (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Continuing swing/scalp trading."
-            else:
-                reason = f"Regime deviation! Market broke out to TRENDING (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Upgrading decision from {morning_pred} to TRENDING. Swing trading enabled."
-        elif avg_daily_range < ranging_threshold or regime == 'RANGING':
-            if morning_pred == 'TRENDING':
-                if confidence >= 85.0:
-                    decision = 'RANGING_NO_TRADE'
-                    reason = f"Regime deviation! Market is flat/ranging (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Downgrading from TRENDING to RANGING_NO_TRADE. Halting new positions."
-                else:
-                    decision = 'RANGING_SCALPS_ONLY'
-                    reason = f"Regime deviation! Market is flat/ranging (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Downgrading from TRENDING to RANGING_SCALPS_ONLY. Swing signals disabled."
-            else:
-                decision = morning_pred
-                reason = f"Ranging day confirmed (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Continuing with {morning_pred} settings."
+        # Verification / Summary Logic
+        if is_evening:
+            # EOD Summary uses the current final decision of the day
+            decision = datastore.get_setting("DAILY_REGIME_DECISION", "TRENDING")
+            reason = f"End of Day Summary. Final active market regime: **{decision}**. Market regime prediction was **{regime}** (Confidence: {confidence:.0f}%)."
         else:
-            # In between, keep morning prediction
-            decision = morning_pred
-            reason = f"Market range within expected limits (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Maintaining {morning_pred} settings."
-            
-        # Apply safety override if active trades are bleeding
-        if safety_override_triggered and decision == 'TRENDING':
-            decision = 'RANGING_SCALPS_ONLY'
-            reason = f"Safety override triggered! Today's trades are bleeding (Stopped: {stopped_out_count}, realized PnL: {realized_pnl:.2f}R). Downgrading to RANGING_SCALPS_ONLY to protect capital."
+            # AFTERNOON VERIFICATION
+            if cb_active:
+                decision = 'RANGING_SCALPS_ONLY'
+                reason = "Afternoon check: Circuit Breaker is active. Maintaining standard safety limits (RANGING_SCALPS_ONLY)."
+            elif avg_daily_range > trending_threshold or regime == 'TRENDING':
+                decision = 'TRENDING'
+                if morning_pred == 'TRENDING':
+                    reason = f"Trending day confirmed (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Continuing swing/scalp trading."
+                else:
+                    reason = f"Regime deviation! Market broke out to TRENDING (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Upgrading decision from {morning_pred} to TRENDING. Swing trading enabled."
+            elif avg_daily_range < ranging_threshold or regime == 'RANGING':
+                if morning_pred == 'TRENDING':
+                    if confidence >= 85.0:
+                        decision = 'RANGING_NO_TRADE'
+                        reason = f"Regime deviation! Market is flat/ranging (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Downgrading from TRENDING to RANGING_NO_TRADE. Halting new positions."
+                    else:
+                        decision = 'RANGING_SCALPS_ONLY'
+                        reason = f"Regime deviation! Market is flat/ranging (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Downgrading from TRENDING to RANGING_SCALPS_ONLY. Swing signals disabled."
+                else:
+                    decision = morning_pred
+                    reason = f"Ranging day confirmed (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Continuing with {morning_pred} settings."
+            else:
+                # In between, keep morning prediction
+                decision = morning_pred
+                reason = f"Market range within expected limits (1 PM actual move: {avg_daily_range:.1%}, latest conf: {confidence:.0f}%). Maintaining {morning_pred} settings."
+                
+            # Apply safety override if active trades are bleeding
+            if safety_override_triggered and decision == 'TRENDING':
+                decision = 'RANGING_SCALPS_ONLY'
+                reason = f"Safety override triggered! Today's trades are bleeding (Stopped: {stopped_out_count}, realized PnL: {realized_pnl:.2f}R). Downgrading to RANGING_SCALPS_ONLY to protect capital."
 
-        # Save decision
-        datastore.set_setting("DAILY_REGIME_DECISION", decision)
-        
-        # Adjust Correlation Cap if needed
-        if decision == 'RANGING_SCALPS_ONLY':
-            datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", "1")
-        elif decision == 'TRENDING':
-            datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", "2")
+            # Save decision
+            datastore.set_setting("DAILY_REGIME_DECISION", decision)
+            
+            # Adjust Correlation Cap if needed
+            if decision == 'RANGING_SCALPS_ONLY':
+                datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", "1")
+            elif decision == 'TRENDING':
+                datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", "2")
             
         # Send Discord Alert
         results = {
             'date': now_est.strftime('%Y-%m-%d'),
-            'time_of_day': 'Afternoon Verification (1:00 PM EST)',
+            'time_of_day': 'Evening Summary (9:00 PM EST)' if is_evening else 'Afternoon Verification (1:00 PM EST)',
             'regime': regime,
             'confidence': confidence,
             'decision': decision,
@@ -604,7 +629,8 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False):
             'realized_pnl': realized_pnl,
             'stopped_out_count': stopped_out_count,
             'safety_override_triggered': safety_override_triggered,
-            'morning_pred': morning_pred
+            'morning_pred': morning_pred,
+            'signals_list': signals_list
         }
         notifier.send_daily_regime_alert(results)
         
