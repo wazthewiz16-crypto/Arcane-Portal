@@ -262,7 +262,47 @@ class TradingViewScraper:
                             const m = txt.match(re);
                             return m ? parseFloat(m[1].replace(/,/g, '')) : null;
                         })(),
-                        EqBand2: findVal('eqband2')
+                        EqBand2: findVal('eqband2'),
+                        // Mutanabby AI Confluences
+                        MutanabbySig: (() => {
+                            const lines = txt.split('\n');
+                            let mutSection = [];
+                            let inMut = false;
+                            for (let i = 0; i < lines.length; i++) {
+                                const clean = lines[i].trim();
+                                if (clean.includes('Mutanabby_AI')) {
+                                    inMut = true;
+                                    continue;
+                                }
+                                if (inMut) {
+                                    if (/Mango Dynamic|Mango Ribbon|Mango Equilibrium|Vol |Volume|Open|Date|Time/i.test(clean)) {
+                                        inMut = false;
+                                        continue;
+                                    }
+                                    mutSection.push(clean.toLowerCase());
+                                }
+                            }
+                            let isStrong = false;
+                            let isBuy = false;
+                            let isSell = false;
+                            for (let i = 0; i < mutSection.length; i++) {
+                                const term = mutSection[i];
+                                if (term.includes('strong')) isStrong = true;
+                                if (term.includes('buy')) isBuy = true;
+                                if (term.includes('sell')) isSell = true;
+                            }
+                            if (isBuy) return isStrong ? 2.0 : 1.0;
+                            if (isSell) return isStrong ? -2.0 : -1.0;
+                            return 0.0;
+                        })(),
+                        // Mango Ribbon TK Crosses
+                        TKCross: (() => {
+                            const bull = findVal('TK Bull Cross');
+                            const bear = findVal('TK Bear Cross');
+                            if (bull !== null && bull > 0.0) return 1.0;
+                            if (bear !== null && bear > 0.0) return -1.0;
+                            return 0.0;
+                        })()
                     };
                     
                     return res;

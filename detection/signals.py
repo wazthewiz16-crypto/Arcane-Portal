@@ -636,10 +636,19 @@ class MangoSignalDetector:
             # -----------------------------------------------------------------------
             
             # Calculate confidence
-            confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=True, is_bounce=ltf_entry.get('is_bounce', False))
+            confidence, confluences = self._calculate_confidence(
+                asset_name=name,
+                htf_tf=htf_tf,
+                ltf_tf=ltf_tf,
+                htf_data=htf_data,
+                ltf_data=ltf_data,
+                is_swing=True,
+                is_bounce=ltf_entry.get('is_bounce', False),
+                signal_direction=htf_direction
+            )
             # +3 bonus when BOTH TFs are expanding
             if htf_eq['expanding'] and ltf_eq['expanding']:
-                confidence += ltf_eq['confidence_bonus']
+                confidence = min(confidence + ltf_eq['confidence_bonus'], 100.0)
             
             # Determine signal type
             signal_type = SignalType.SWING_LONG if htf_direction == 'LONG' else SignalType.SWING_SHORT
@@ -676,7 +685,8 @@ class MangoSignalDetector:
                 'htf': htf_data['timeframe'],
                 'ltf': ltf_data['timeframe'],
                 'entry_time': datetime.now(pytz.timezone('America/New_York')).isoformat(),
-                'status': 'ACTIVE'
+                'status': 'ACTIVE',
+                'confluences': confluences
             }
         
         return None
@@ -782,10 +792,19 @@ class MangoSignalDetector:
             # -----------------------------------------------------------------------
             
             # Calculate confidence (stricter for scalps)
-            confidence = self._calculate_confidence(htf_data, ltf_data, is_swing=False, is_bounce=ltf_entry.get('is_bounce', False))
+            confidence, confluences = self._calculate_confidence(
+                asset_name=name,
+                htf_tf=htf_tf,
+                ltf_tf=ltf_tf,
+                htf_data=htf_data,
+                ltf_data=ltf_data,
+                is_swing=False,
+                is_bounce=ltf_entry.get('is_bounce', False),
+                signal_direction=htf_direction
+            )
             # +3 bonus when BOTH TFs are expanding
             if htf_eq['expanding'] and ltf_eq['expanding']:
-                confidence += ltf_eq['confidence_bonus']
+                confidence = min(confidence + ltf_eq['confidence_bonus'], 100.0)
             
             # Determine signal type
             signal_type = SignalType.SCALP_LONG if htf_direction == 'LONG' else SignalType.SCALP_SHORT
@@ -822,7 +841,8 @@ class MangoSignalDetector:
                 'htf': htf_data['timeframe'],
                 'ltf': ltf_data['timeframe'],
                 'entry_time': datetime.now(pytz.timezone('America/New_York')).isoformat(),
-                'status': 'ACTIVE'
+                'status': 'ACTIVE',
+                'confluences': confluences
             }
         
         return None
@@ -1086,17 +1106,20 @@ class MangoSignalDetector:
             'reason': 'Valid entry' if valid else 'Not in entry zone'
         }
     
-    def _calculate_confidence(self, htf_data: Dict, ltf_data: Dict, is_swing: bool, is_bounce: bool = False) -> float:
+    def _calculate_confidence(self, asset_name: str, htf_tf: str, ltf_tf: str, htf_data: Dict, ltf_data: Dict, is_swing: bool, is_bounce: bool = False, signal_direction: str = 'LONG') -> Tuple[float, List[str]]:
         """
-        Calculate signal confidence (0-100%)
+        Calculate signal confidence (0-100%) and capture indicator confluences.
         
         Factors:
         - HTF trend strength
         - LTF entry quality (Bounce/Breakout)
         - Volume confirmation
         - Mango D1/D2 alignment
+        - Mutanabby AI (HTF prioritized)
+        - Mango Ribbon (TK Crosses)
         """
         confidence = 50.0  # Base confidence
+        confluences = []
         
         # HTF trend strength (up to +20%)
         price = htf_data.get('close')
@@ -1131,22 +1154,140 @@ class MangoSignalDetector:
             confidence += 5
             
         # Perfect Bounce Pattern Reward
-        # Reduced from +15 to +8 — was too easily inflating scores into the 90%+ bucket
         if is_bounce:
             confidence += 8
         
         # Soft Zone Position Penalty
-        # Entries at extreme zone positions get a confidence penalty instead of a hard block.
-        # For longs: entering at the TOP of the zone is risky (less room to TP).
-        # For shorts: entering at the BOTTOM of the zone is risky.
-        # Zone position > 90% or < 10% = -5 confidence.
         if ltf_price and entry_down and entry_up and (entry_up - entry_down) > 0:
             zone_pos = (ltf_price - entry_down) / (entry_up - entry_down)
             if zone_pos > 0.90 or zone_pos < 0.10:
                 confidence -= 5
                 
-        # Cap at 100%
-        return min(confidence, 100.0)
+        # --- Mutanabby AI & Mango Ribbon Confluences ---
+        mutanabby_htf_boost = 0.0
+        mutanabby_ltf_boost = 0.0
+        tk_cross_boost = 0.0
+        
+        # Fetch recent HTF scrapes (lookback 5)
+        recent_htf = []
+        try:
+            with self.datastore.get_connection() as conn:
+                recent_htf = self.datastore._fetch_query(conn, """
+                    SELECT mutanabby_sig, tk_cross FROM scrapes 
+                    WHERE name = ? AND timeframe = ? 
+                    ORDER BY timestamp DESC LIMIT 5
+                """, (asset_name, htf_tf))
+        except Exception as e:
+            logger.warning(f"Error fetching recent HTF scrapes: {e}")
+            
+        # Fetch recent LTF scrapes (lookback 3)
+        recent_ltf = []
+        try:
+            with self.datastore.get_connection() as conn:
+                recent_ltf = self.datastore._fetch_query(conn, """
+                    SELECT mutanabby_sig, tk_cross FROM scrapes 
+                    WHERE name = ? AND timeframe = ? 
+                    ORDER BY timestamp DESC LIMIT 3
+                """, (asset_name, ltf_tf))
+        except Exception as e:
+            logger.warning(f"Error fetching recent LTF scrapes: {e}")
+            
+        # Evaluate HTF Mutanabby (prioritized!)
+        for idx, row in enumerate(recent_htf):
+            sig = row.get('mutanabby_sig', 0.0)
+            if sig is None:
+                sig = 0.0
+            if signal_direction == 'LONG':
+                if sig == 2.0:  # Strong Buy
+                    mutanabby_htf_boost = 15.0
+                    confluences.append(f"HTF Mutanabby Strong Buy ({idx} candles ago)")
+                    break
+                elif sig == 1.0:  # Standard Buy
+                    mutanabby_htf_boost = 10.0
+                    confluences.append(f"HTF Mutanabby Buy ({idx} candles ago)")
+                    break
+                elif sig < 0.0:  # Opposing HTF signal on current bar
+                    if idx == 0:
+                        mutanabby_htf_boost = -15.0
+                        confluences.append("HTF Opposing Mutanabby Sell (current)")
+                        break
+            else:  # SHORT
+                if sig == -2.0:  # Strong Sell
+                    mutanabby_htf_boost = 15.0
+                    confluences.append(f"HTF Mutanabby Strong Sell ({idx} candles ago)")
+                    break
+                elif sig == -1.0:  # Standard Sell
+                    mutanabby_htf_boost = 10.0
+                    confluences.append(f"HTF Mutanabby Sell ({idx} candles ago)")
+                    break
+                elif sig > 0.0:
+                    if idx == 0:
+                        mutanabby_htf_boost = -15.0
+                        confluences.append("HTF Opposing Mutanabby Buy (current)")
+                        break
+                        
+        # Evaluate LTF Mutanabby (lookback 3)
+        for idx, row in enumerate(recent_ltf):
+            sig = row.get('mutanabby_sig', 0.0)
+            if sig is None:
+                sig = 0.0
+            if signal_direction == 'LONG':
+                if sig == 2.0:
+                    mutanabby_ltf_boost = 10.0
+                    confluences.append(f"LTF Mutanabby Strong Buy ({idx} candles ago)")
+                    break
+                elif sig == 1.0:
+                    mutanabby_ltf_boost = 5.0
+                    confluences.append(f"LTF Mutanabby Buy ({idx} candles ago)")
+                    break
+                elif sig < 0.0:
+                    if idx == 0:
+                        mutanabby_ltf_boost = -15.0
+                        confluences.append("LTF Opposing Mutanabby Sell (current)")
+                        break
+            else:  # SHORT
+                if sig == -2.0:
+                    mutanabby_ltf_boost = 10.0
+                    confluences.append(f"LTF Mutanabby Strong Sell ({idx} candles ago)")
+                    break
+                elif sig == -1.0:
+                    mutanabby_ltf_boost = 5.0
+                    confluences.append(f"LTF Mutanabby Sell ({idx} candles ago)")
+                    break
+                elif sig > 0.0:
+                    if idx == 0:
+                        mutanabby_ltf_boost = -15.0
+                        confluences.append("LTF Opposing Mutanabby Buy (current)")
+                        break
+                        
+        # Evaluate LTF TK Cross (lookback 3)
+        for idx, row in enumerate(recent_ltf):
+            cross = row.get('tk_cross', 0.0)
+            if cross is None:
+                cross = 0.0
+            if signal_direction == 'LONG':
+                if cross == 1.0:
+                    tk_cross_boost = 10.0
+                    confluences.append(f"LTF Bullish TK Cross ({idx} candles ago)")
+                    break
+                elif cross == -1.0:
+                    if idx == 0:
+                        tk_cross_boost = -10.0
+                        confluences.append("LTF Bearish TK Cross (current)")
+                        break
+            else:  # SHORT
+                if cross == -1.0:
+                    tk_cross_boost = 10.0
+                    confluences.append(f"LTF Bearish TK Cross ({idx} candles ago)")
+                    break
+                elif cross == 1.0:
+                    if idx == 0:
+                        tk_cross_boost = -10.0
+                        confluences.append("LTF Bullish TK Cross (current)")
+                        break
+                        
+        final_confidence = max(min(confidence + mutanabby_htf_boost + mutanabby_ltf_boost + tk_cross_boost, 100.0), 0.0)
+        return final_confidence, confluences
     
     # ── Asset-Specific RR Profiles (Phase 3) ─────────────────────────────────
     # BTC/ETH and major indices sustain bigger moves; altcoins mean-revert faster.

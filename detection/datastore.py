@@ -36,7 +36,7 @@ class MangoDataStore:
         except Exception:
             current_version = 0
 
-        LATEST_VERSION = 2
+        LATEST_VERSION = 3
         if current_version < LATEST_VERSION:
             logger.info(f"Database version {current_version} is less than latest {LATEST_VERSION}. Running migrations...")
             self.init_db()
@@ -91,6 +91,8 @@ class MangoDataStore:
                         lower_vol_b REAL,
                         eq_band1 REAL,
                         eq_band2 REAL,
+                        mutanabby_sig REAL,
+                        tk_cross REAL,
                         UNIQUE(name, timeframe, candle_time)
                     )
                 """)
@@ -105,6 +107,10 @@ class MangoDataStore:
                 try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN IF NOT EXISTS eq_band1 REAL")
                 except: pass
                 try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN IF NOT EXISTS eq_band2 REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN IF NOT EXISTS mutanabby_sig REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN IF NOT EXISTS tk_cross REAL")
                 except: pass
                 
                 self._execute_query(conn, """
@@ -233,6 +239,8 @@ class MangoDataStore:
                         lower_vol_b REAL,
                         eq_band1 REAL,
                         eq_band2 REAL,
+                        mutanabby_sig REAL,
+                        tk_cross REAL,
                         UNIQUE(name, timeframe, candle_time)
                     )
                 """)
@@ -247,6 +255,10 @@ class MangoDataStore:
                 try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN eq_band1 REAL")
                 except: pass
                 try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN eq_band2 REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN mutanabby_sig REAL")
+                except: pass
+                try: self._execute_query(conn, "ALTER TABLE scrapes ADD COLUMN tk_cross REAL")
                 except: pass
                 
                 self._execute_query(conn, """
@@ -487,8 +499,9 @@ class MangoDataStore:
                 symbol, name, timeframe, tf_type, timestamp,
                     open, high, low, close, volume,
                     mango_d1, mango_d2, entry_up, entry_down, candle_time, trend,
-                    upper_vol_b, lower_vol_b, eq_band1, eq_band2
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    upper_vol_b, lower_vol_b, eq_band1, eq_band2,
+                    mutanabby_sig, tk_cross
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 scrape_data['symbol'],
                 scrape_data['name'],
@@ -509,7 +522,9 @@ class MangoDataStore:
                 pv.get('UpperVolB'),
                 pv.get('LowerVolB'),
                 pv.get('EqBand1'),
-                pv.get('EqBand2')
+                pv.get('EqBand2'),
+                pv.get('MutanabbySig', 0.0),
+                pv.get('TKCross', 0.0)
             ))
     
     def save_scrapes(self, scrape_list):

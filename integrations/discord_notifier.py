@@ -232,6 +232,19 @@ class DiscordNotifier:
                 lines.append("   • MTF Preset: ✅ Mango Bearish Confirmed")
             elif mtf_b or mtf_be:
                 lines.append(f"   • MTF Preset: ⚠️ {'Mango Bullish' if mtf_b else 'Mango Bearish'} (opposite direction)")
+                # Add Mutanabby & Mango Ribbon Confluences if available
+        confluences = signal.get('confluences')
+        if confluences:
+            lines += [
+                "━━━━━━━━━━━━━━━━━━",
+                "📈 **Mutanabby & Mango Ribbon Confluences:**"
+            ]
+            for conf in confluences:
+                if "TK Cross" in conf:
+                    icon = "🔹" if "Bullish" in conf else "🔸"
+                else:
+                    icon = "🟢" if "Strong" in conf else "⚪"
+                lines.append(f"   • {icon} {conf}")
                 
         return "\n".join(lines)
 
