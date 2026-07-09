@@ -3,7 +3,7 @@ import logging
 import pytz
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from config import settings
 
 logger = logging.getLogger(__name__)
