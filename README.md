@@ -23,6 +23,8 @@
   - **Discord Visualization:** Styled with custom border colors (Vibrant Gold `0xF1C40F` for Tier A+) and prepended with prominent setup headers (e.g. `🏆 TIER A+ ULTRA SETUP`) containing detailed italicized explanations. Direct support for strict trade-frequency disciplines!
 - 🤖 **Auto-Optimizer**: Runs continually to dynamically adjust confidence thresholds up or down based on recent win rates, frequency, and detected market regime, preventing dry spells and system death-spirals.
 - 📡 **Trade Radar**: Automatically pushes the top 5 "Prime" active trades (ideal pullbacks and near-entry trades) to Discord 4 times a day, allowing you to catch high-probability setups without watching charts.
+- 🌙 **EOD Summary & Outlook (9:00 PM EST)**: Pushes a comprehensive daily wrap-up to Discord including full-day watchlist returns, top session gainers/losers, daily signal performance (win rate, realized PnL in R-multipliers), and a bulleted list of today's executed trades with status emojis.
+- 🤖 **Interactive Discord Command Bot**: Standalone bot (`run_bot.py` running 24/7 via `Procfile`) that listens for prefix commands: `!radar` to manually run the trade radar, `!conditions` to print real-time regime decisions and Mango dashboard indicators, `!optimizer` to run the auto-optimizer on-demand, and `!brief`/`!afternoon`/`!evening` to generate daily briefs manually.
 - 📊 **Real-time Dashboard**: Beautiful Streamlit interface with live updates, active signals, historical performance, dynamic levels (15m through 4d), and system health metrics.
 - 🧪 **Strategy Backtester & Parameter Optimizer**: Built directly into the dashboard, supporting TV CSV/TXT uploads, automated column mapping with confluences, database persistence (SQLite/PostgreSQL) to save historical simulations, side-by-side run comparisons, and grid-search parameter sweeps to maximize profitability.
 - 💬 **Discord Alerts**: Instant notifications with rich embeds (TP/SL/RR details), **dual TradingView screenshots** (HTF context chart + LTF entry chart), and automated optimizer updates.
@@ -81,6 +83,7 @@ Create a `.env` file in the root directory:
 ```bash
 # Discord Integration
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_WEBHOOK_URL
+DISCORD_BOT_TOKEN=YOUR_DISCORD_BOT_TOKEN
 
 # Database (Neon Serverless PostgreSQL recommended)
 DATABASE_URL=postgresql://user:pass@ep-host.region.aws.neon.tech/neondb?sslmode=require
@@ -117,6 +120,9 @@ python -m streamlit run dashboard/app.py
 
 # Terminal 2: Run the Background Monitor
 python monitor_signals.py
+
+# Terminal 3: Run the Discord Command Bot
+python run_bot.py
 ```
 
 Dashboard will be available at: **http://localhost:8501**
@@ -197,6 +203,16 @@ The primary execution script.
 - Watches the database for new signals.
 - Interfaces with `discord_notifier.py` to post high-quality PNG charts.
 - Validates the active state to pause execution natively on Windows/Linux environments.
+
+### Discord Command Bot (`run_bot.py`)
+A standalone bot client that listens to message channels for control commands:
+- `!radar`: Triggers the trade radar on-demand to scan for pullback entry opportunities.
+- `!conditions`: Pulls active regime, circuit breaker state, altcoin correlation caps, and Mango dashboard metrics in a clean status card.
+- `!optimizer`: Forces an immediate Auto-Optimizer run to tune confidence filters.
+- `!brief` / `!afternoon` / `!evening`: Dispatches daily regime briefings and summaries.
+- `!help`: Lists all available commands.
+
+It runs continuously on Railway. If `DISCORD_BOT_TOKEN` is not configured, it logs a warning and exits cleanly without crashing.
 
 ---
 
