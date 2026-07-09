@@ -165,8 +165,17 @@ def run_trade_radar():
         }
         tier_display = tier_badges.get(tier, f'**{tier}**')
             
+        # Retrieve current price from current_prices map
+        asset_key = sig['asset_name'].strip().upper()
+        cur_p = current_prices.get(asset_key, 0.0)
+        entry_p = float(sig['entry_price'])
+        if cur_p == 0.0:
+            cur_p = entry_p
+            
+        dec = 4 if entry_p < 1 else (3 if entry_p < 100 else 2)
+
         msg += f"**{sig['asset_name']}** {trade_type} ({sig['htf']}→{sig['ltf']})\n"
-        msg += f"↳ Action: {direction} @ {sig['entry_price']}\n"
+        msg += f"↳ Action: {direction} @ ${entry_p:.{dec}f} (Current: ${cur_p:.{dec}f})\n"
         msg += f"↳ Status: **{status}** | Conf: `{t['conf']:.1f}%` | Tier: {tier_display}\n"
         msg += f"↳ R:R Ratio: `{t['original_rr']:.1f}:1` ➔ **Enhanced R:R: `{t['enhanced_rr']:.1f}:1`**\n\n"
         
