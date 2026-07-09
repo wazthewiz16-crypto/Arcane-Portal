@@ -93,6 +93,12 @@ async def trigger_radar(ctx):
     """Trigger the Trade Radar manually"""
     await ctx.message.add_reaction("🔄")
     msg = await ctx.send("🔄 Triggering Arcane Trade Radar...")
+    
+    if not os.getenv("DISCORD_WEBHOOK_URL"):
+        await ctx.message.add_reaction("⚠️")
+        await msg.edit(content="⚠️ Warning: `DISCORD_WEBHOOK_URL` is not configured in this bot's environment variables. Webhook alerts cannot be posted.")
+        return
+        
     try:
         from trade_radar import run_trade_radar
         loop = asyncio.get_running_loop()
@@ -180,6 +186,12 @@ async def trigger_morning_brief(ctx):
     """Trigger Morning Trading Brief manually"""
     await ctx.message.add_reaction("🔄")
     msg = await ctx.send("🔄 Triggering Morning Trading Brief & Regime Prediction...")
+    
+    if not os.getenv("DISCORD_WEBHOOK_URL"):
+        await ctx.message.add_reaction("⚠️")
+        await msg.edit(content="⚠️ Warning: `DISCORD_WEBHOOK_URL` is not configured in this bot's environment variables. Webhook alerts cannot be posted.")
+        return
+        
     try:
         from detection.daily_regime import execute_daily_regime_check
         from detection.datastore import MangoDataStore
@@ -197,6 +209,12 @@ async def trigger_afternoon_check(ctx):
     """Trigger Afternoon Verification manually"""
     await ctx.message.add_reaction("🔄")
     msg = await ctx.send("🔄 Triggering Afternoon Regime Verification...")
+    
+    if not os.getenv("DISCORD_WEBHOOK_URL"):
+        await ctx.message.add_reaction("⚠️")
+        await msg.edit(content="⚠️ Warning: `DISCORD_WEBHOOK_URL` is not configured in this bot's environment variables. Webhook alerts cannot be posted.")
+        return
+        
     try:
         from detection.daily_regime import execute_daily_regime_check
         from detection.datastore import MangoDataStore
@@ -214,6 +232,12 @@ async def trigger_evening_check(ctx):
     """Trigger Evening EOD Summary manually"""
     await ctx.message.add_reaction("🔄")
     msg = await ctx.send("🔄 Triggering Evening End of Day Summary & Outlook...")
+    
+    if not os.getenv("DISCORD_WEBHOOK_URL"):
+        await ctx.message.add_reaction("⚠️")
+        await msg.edit(content="⚠️ Warning: `DISCORD_WEBHOOK_URL` is not configured in this bot's environment variables. Webhook alerts cannot be posted.")
+        return
+        
     try:
         from detection.daily_regime import execute_daily_regime_check
         from detection.datastore import MangoDataStore
