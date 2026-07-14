@@ -37,7 +37,7 @@ CONTEXT_ASSETS = [
 ]
 
 def get_active_assets():
-    """Return all enabled assets, filtering based on weekend rules.
+    """Return all enabled assets, filtering based on weekend and overnight rules.
     Context assets (e.g., BTC.D) are always included regardless of the day."""
     from datetime import datetime
     import pytz
@@ -48,14 +48,17 @@ def get_active_assets():
     now = datetime.now(est)
     is_weekend = now.weekday() >= 5  # 5 = Saturday, 6 = Sunday
     
+    # Check if it is overnight for TradFi (6 PM to 8 AM EST - closed markets)
+    is_tradfi_quiet = now.hour >= 18 or now.hour < 8
+    
     active_assets = []
     
     for base_asset in ASSETS:
         # Deep copy so we don't accidentally mutate the global list
         asset = copy.deepcopy(base_asset)
         
-        # 1. Skip TradFi completely on weekends (markets are closed)
-        if is_weekend and asset.get('type') == 'tradfi':
+        # 1. Skip TradFi completely on weekends or during overnight quiet hours (markets are closed)
+        if (is_weekend or is_tradfi_quiet) and asset.get('type') == 'tradfi':
             continue
             
         # 2. For Crypto on weekends, reduce timeframes to only 4H, 1H, and 15m 

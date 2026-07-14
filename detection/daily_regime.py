@@ -130,8 +130,10 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False, is_evening
             # All signals blocked, cap is irrelevant
             pass
         else:
-            # Trending: Restore standard correlation cap (2 max)
-            datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", "2")
+            # Trending: Restore standard correlation cap (default 3, configurable via BASE_MAX_CRYPTO_SAME_DIRECTION)
+            base_cap = datastore.get_setting("BASE_MAX_CRYPTO_SAME_DIRECTION", "3")
+            datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", base_cap)
+            logger.info(f"Trending Regime: Setting crypto correlation cap to {base_cap} positions max.")
 
         # ── Calculate Overnight Price Moves (11 PM yesterday to 6 AM today) ──
         top_gainers = []
@@ -602,7 +604,8 @@ def execute_daily_regime_check(datastore, is_afternoon: bool = False, is_evening
             if decision == 'RANGING_SCALPS_ONLY':
                 datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", "1")
             elif decision == 'TRENDING':
-                datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", "2")
+                base_cap = datastore.get_setting("BASE_MAX_CRYPTO_SAME_DIRECTION", "3")
+                datastore.set_setting("MAX_CRYPTO_SAME_DIRECTION", base_cap)
             
         # Send Discord Alert
         results = {
