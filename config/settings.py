@@ -36,7 +36,6 @@ STRICT_SCALP_LTF_ALIGNMENT = os.getenv("STRICT_SCALP_LTF_ALIGNMENT", "false").lo
 STREAMLIT_SERVER_PORT = int(os.getenv("STREAMLIT_SERVER_PORT", "8501"))
 
 # Scraping Intervals (in minutes)
-# Scraping Intervals (in minutes)
 SCRAPE_INTERVALS = {
     "3m": 3,
     "5m": 5,
@@ -46,13 +45,15 @@ SCRAPE_INTERVALS = {
     "4h": 240,
     "12h": 720,
     "1d": 1440,
-    "4d": 5760
+    "4d": 5760,
+    "1w": 10080
 }
 
 # TradingView Layouts (Per-Timeframe Settings Support)
 # Allows using different saved layouts (with different indicator settings) per timeframe
 LAYOUTS = {
     "default": os.getenv("TRADINGVIEW_LAYOUT_ID", ""),
+    "1w": os.getenv("TRADINGVIEW_LAYOUT_1W", ""),
     "4d": os.getenv("TRADINGVIEW_LAYOUT_4D", ""),
     "1d": os.getenv("TRADINGVIEW_LAYOUT_1D", ""),
     "12h": os.getenv("TRADINGVIEW_LAYOUT_12H", ""),

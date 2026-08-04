@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # All tradeable timeframes (excluding deprecated 3m)
-ALL_TIMEFRAMES = ['15m', '1h', '4h', '12h', '1d', '4d']
+ALL_TIMEFRAMES = ['15m', '1h', '4h', '12h', '1d', '4d', '1w']
 
 # Cron schedule is */15 10-23,0-3 * * * UTC
 # That maps to 05:00-03:59 EST (UTC-5), or 06:00-04:59 EDT (UTC-4)
@@ -96,6 +96,10 @@ class TimeframeScheduler:
         days_since_epoch = (now - datetime(2024, 1, 1, tzinfo=self.utc)).days
         if days_since_epoch % 4 == 0 and now.hour == 0 and 5 <= now.minute < 35:
             timeframes_to_scrape.append('4d')
+            
+        # 1w: Every day at 00:00 UTC (first 30 mins) to get the running weekly candle
+        if now.hour == 0 and now.minute < 30:
+            timeframes_to_scrape.append('1w')
         
         return timeframes_to_scrape
     
@@ -146,12 +150,16 @@ class TimeframeScheduler:
             days_until_next = 4 - (days_since_epoch % 4)
             next_time = now + timedelta(days=days_until_next)
             return next_time.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+        elif timeframe == '1w':
+            # Next day at 00:00 UTC
+            return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         
         return None
     
     def get_scrape_summary(self):
         """Get a summary of what will be scraped and when"""
-        timeframes = ['3m', '15m', '1h', '4h', '12h', '1d', '4d']
+        timeframes = ['3m', '15m', '1h', '4h', '12h', '1d', '4d', '1w']
         to_scrape = self.get_timeframes_to_scrape()
         
         summary = {

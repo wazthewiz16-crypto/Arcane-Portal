@@ -561,8 +561,13 @@ class MangoSignalDetector:
         """
         # Try different HTF/LTF combinations for swing trading
         combinations = [
-            ('4d', '1d'),   # Weekly/Daily swing
+            ('1w', '1d'),   # Weekly/Daily swing
+            ('4d', '1d'),   # 4D/Daily swing
+            ('1w', '4h'),   # Weekly/4H swing
+            ('4d', '4h'),   # 4D/4H swing
             ('1d', '4h'),   # Daily/4H swing — primary swing combo
+            ('1d', '1h'),   # Daily/1H swing
+            ('12h', '1h'),  # 12H/1H swing
         ]
         
         for htf_tf, ltf_tf in combinations:
@@ -581,7 +586,7 @@ class MangoSignalDetector:
             # Swing trades must never fight the Daily or 4D (Weekly) trend. 
             # NEUTRAL is OK, but explicitly OPPOSITE is forbidden.
             daily_data = timeframes.get('1d')
-            weekly_data = timeframes.get('4d')
+            weekly_data = timeframes.get('4d') or timeframes.get('1w')
             
             if daily_data:
                 daily_dir = self._get_htf_direction(daily_data)
@@ -701,10 +706,12 @@ class MangoSignalDetector:
         - Uses 1h → 15m or 4h → 1h combinations
         """
         # Try different HTF/LTF combinations for scalp trading
-        # Only timeframes actively scraped by the scheduler: 15m, 1h, 4h, 12h, 4d
+        # Only timeframes actively scraped by the scheduler: 15m, 1h, 4h, 12h, 1d, 4d, 1w
         combinations = [
             ('4h', '15m'),  # 4H/15m scalp — primary scalp combo
             ('1h', '15m'),  # 1H/15m scalp — tighter confirmation
+            ('4h', '1h'),   # 4H/1H scalp/short-term — filters out 15m noise (NEW)
+            ('12h', '1h'),  # 12H/1H scalp/short-term (NEW)
         ]
         
         for htf_tf, ltf_tf in combinations:
@@ -741,7 +748,7 @@ class MangoSignalDetector:
             allow_weekly_str = self.datastore.get_setting("ALLOW_SCALP_WEEKLY_MISMATCH")
             allow_scalp_weekly_mismatch = str(allow_weekly_str).lower() == 'true' if allow_weekly_str is not None else settings.ALLOW_SCALP_WEEKLY_MISMATCH
 
-            weekly_data = timeframes.get('4d')
+            weekly_data = timeframes.get('4d') or timeframes.get('1w')
             if weekly_data and not allow_scalp_weekly_mismatch:
                 weekly_dir = self._get_htf_direction(weekly_data)
                 if htf_direction == 'LONG' and weekly_dir == 'SHORT':

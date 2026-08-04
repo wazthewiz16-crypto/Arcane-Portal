@@ -522,7 +522,7 @@ def render_asset_monitor(datastore=None):
             tf = row['timeframe']
             
             # Smart categorization
-            if tf in ['4d', '1d', '12h', '4h']:
+            if tf in ['1w', '4d', '1d', '12h', '4h']:
                 # Prioritize 4H for HTF view, otherwise take what's available
                 current = asset_data[name]['htf']
                 if not current or tf == '4h' or (tf == '1d' and current['timeframe'] != '4h'):
@@ -659,7 +659,7 @@ def render_dynamic_levels(datastore):
     cols = st.columns(2)
     
     # Scraped timeframes (excluding 5m as it's not scraped)
-    timeframes = ['15m', '1h', '4h', '12h', '1d', '4d']
+    timeframes = ['15m', '1h', '4h', '12h', '1d', '4d', '1w']
     
     for i, asset in enumerate(assets):
         with cols[i % 2]:
