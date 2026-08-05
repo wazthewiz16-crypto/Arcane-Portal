@@ -325,17 +325,31 @@ class MangoSignalDetector:
         swing_signal = self._detect_swing_signal(asset_name, timeframes)
         min_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING))
         if swing_signal and swing_signal['confidence'] >= min_swing:
-            swing_signal = self._validate_mango_confluence(asset_name, swing_signal)
+            # Confluence Filter: Require at least 1 Mutanabby/TK Cross confluence for swing signals < 75% confidence
+            confs = swing_signal.get('confluences', [])
+            if swing_signal['confidence'] < 75.0 and not confs:
+                logger.info(f"🚫 Confluence Blocker: {asset_name} Swing blocked (conf {swing_signal['confidence']:.1f}% < 75% and zero confluences)")
+                swing_signal = None
+                
             if swing_signal:
-                signals.append(swing_signal)
+                swing_signal = self._validate_mango_confluence(asset_name, swing_signal)
+                if swing_signal:
+                    signals.append(swing_signal)
         
         # Scalp signals
         scalp_signal = self._detect_scalp_signal(asset_name, timeframes)
         min_scalp = float(self.datastore.get_setting("MIN_CONFIDENCE_SCALP", settings.MIN_CONFIDENCE_SCALP))
         if scalp_signal and scalp_signal['confidence'] >= min_scalp:
-            scalp_signal = self._validate_mango_confluence(asset_name, scalp_signal)
+            # Confluence Filter: Require at least 1 Mutanabby/TK Cross confluence for scalp signals < 80% confidence
+            confs = scalp_signal.get('confluences', [])
+            if scalp_signal['confidence'] < 80.0 and not confs:
+                logger.info(f"🚫 Confluence Blocker: {asset_name} Scalp blocked (conf {scalp_signal['confidence']:.1f}% < 80% and zero confluences)")
+                scalp_signal = None
+                
             if scalp_signal:
-                signals.append(scalp_signal)
+                scalp_signal = self._validate_mango_confluence(asset_name, scalp_signal)
+                if scalp_signal:
+                    signals.append(scalp_signal)
             
         return signals
 
@@ -1359,14 +1373,20 @@ class MangoSignalDetector:
         # Define a minimum SL distance to avoid micro-wicks stopping us out instantly
         if is_scalp:
             if asset_type == 'crypto':
-                MIN_RISK_PCT = 0.022  # 2.2% min SL for crypto scalps
+                if asset_name.upper() in ['BTC', 'ETH']:
+                    MIN_RISK_PCT = 0.025  # 2.5% min SL for BTC/ETH scalps
+                else:
+                    MIN_RISK_PCT = 0.038  # 3.8% min SL for altcoin scalps
             else:
                 MIN_RISK_PCT = 0.018  # 1.8% min SL for tradfi scalps
         else:
             if asset_type == 'tradfi':
-                MIN_RISK_PCT = 0.020  # 2% SL for tradfi swings
+                MIN_RISK_PCT = 0.020  # 2.0% SL for tradfi swings
             else:
-                MIN_RISK_PCT = 0.025  # 2.5% SL for crypto swings
+                if asset_name.upper() in ['BTC', 'ETH']:
+                    MIN_RISK_PCT = 0.035  # 3.5% min SL for BTC/ETH swings
+                else:
+                    MIN_RISK_PCT = 0.055  # 5.5% min SL for altcoin swings
         
         # Determine RR ratio — Phase 3: asset-specific lookup
         profile = self.ASSET_RR_PROFILES.get(asset_name.upper(), self.DEFAULT_RR)

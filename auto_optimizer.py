@@ -468,8 +468,8 @@ class AutoOptimizer:
                 logger.info(f"Optimal {label} threshold found: {best_threshold} (Net R: {best_net_r:+.2f}R, Win Rate: {best_wr:.1%})")
             return best_threshold
             
-        opt_swing = optimize_subset(swings, 55, 85, 'SWING')
-        opt_scalp = optimize_subset(scalps, 60, 88, 'SCALP')
+        opt_swing = optimize_subset(swings, 68, 85, 'SWING')
+        opt_scalp = optimize_subset(scalps, 72, 88, 'SCALP')
         
         return opt_swing, opt_scalp
 

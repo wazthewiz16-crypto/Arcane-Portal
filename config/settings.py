@@ -21,9 +21,9 @@ DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR}/mango_scraper.db
 HEADLESS_BROWSER = os.getenv("HEADLESS_BROWSER", "true").lower() == "true"
 TV_STATE_FILE = PROJECT_ROOT / "tv_state.json"
 
-# Signal Confidence Thresholds (Lowered post-Phase 3: pruned combos + asset RR handle quality)
-MIN_CONFIDENCE_SWING = float(os.getenv("MIN_CONFIDENCE_SWING", "65"))  # Was 72
-MIN_CONFIDENCE_SCALP = float(os.getenv("MIN_CONFIDENCE_SCALP", "70"))  # Was 75
+# Signal Confidence Thresholds (Optimized for win rate and accuracy)
+MIN_CONFIDENCE_SWING = float(os.getenv("MIN_CONFIDENCE_SWING", "68"))
+MIN_CONFIDENCE_SCALP = float(os.getenv("MIN_CONFIDENCE_SCALP", "72"))
 MANGO_VOLATILITY_THRESHOLD = float(os.getenv("MANGO_VOLATILITY_THRESHOLD", "85"))
 
 # Macro Trend & LTF Ribbon Alignment Filters
