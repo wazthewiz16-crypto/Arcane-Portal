@@ -102,7 +102,7 @@ class MultiHorizonOptimizer:
             if st7['total'] >= 3 and st7['win_rate'] == 0.0:
                 halt = True
                 penalty = 15.0
-                reason = f"AUTO-HALT: 0% win rate across {st7['total']} trades in last 7 days."
+                reason = f"AUTO-HALT: 0% WR ({st7['total']}L in 7d). Un-halts as active trades hit TP or as losses age out of 7d window."
             # Rule 2: Severe Underperformance (Win Rate < 30% or Net R < -2.0) across 7d/14d
             elif (st7['total'] >= 2 and st7['win_rate'] < 30.0) or (st14['total'] >= 4 and st14['win_rate'] < 30.0):
                 penalty = 10.0
