@@ -324,6 +324,17 @@ class MangoSignalDetector:
         # Analyze - Swing signals
         swing_signal = self._detect_swing_signal(asset_name, timeframes)
         min_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING))
+        if swing_signal:
+            sig_type = swing_signal['signal_type']
+            is_halted = str(self.datastore.get_setting(f"HALT_{sig_type}", "false")).lower() == "true"
+            penalty = float(self.datastore.get_setting(f"GATING_PENALTY_{sig_type}", "0.0"))
+            if is_halted:
+                logger.info(f"🚫 Multi-Horizon Gating: {asset_name} {sig_type} blocked due to AUTO-HALT.")
+                swing_signal = None
+            elif swing_signal['confidence'] < (min_swing + penalty):
+                logger.info(f"🚫 Multi-Horizon Gating: {asset_name} {sig_type} blocked — conf {swing_signal['confidence']:.1f}% below required {min_swing + penalty:.1f}% (+{penalty:.0f}% penalty).")
+                swing_signal = None
+
         if swing_signal and swing_signal['confidence'] >= min_swing:
             # Confluence Filter: Require at least 1 Mutanabby/TK Cross confluence for swing signals < 75% confidence
             confs = swing_signal.get('confluences', [])
@@ -339,6 +350,17 @@ class MangoSignalDetector:
         # Scalp signals
         scalp_signal = self._detect_scalp_signal(asset_name, timeframes)
         min_scalp = float(self.datastore.get_setting("MIN_CONFIDENCE_SCALP", settings.MIN_CONFIDENCE_SCALP))
+        if scalp_signal:
+            sig_type = scalp_signal['signal_type']
+            is_halted = str(self.datastore.get_setting(f"HALT_{sig_type}", "false")).lower() == "true"
+            penalty = float(self.datastore.get_setting(f"GATING_PENALTY_{sig_type}", "0.0"))
+            if is_halted:
+                logger.info(f"🚫 Multi-Horizon Gating: {asset_name} {sig_type} blocked due to AUTO-HALT.")
+                scalp_signal = None
+            elif scalp_signal['confidence'] < (min_scalp + penalty):
+                logger.info(f"🚫 Multi-Horizon Gating: {asset_name} {sig_type} blocked — conf {scalp_signal['confidence']:.1f}% below required {min_scalp + penalty:.1f}% (+{penalty:.0f}% penalty).")
+                scalp_signal = None
+
         if scalp_signal and scalp_signal['confidence'] >= min_scalp:
             # Confluence Filter: Require at least 1 Mutanabby/TK Cross confluence for scalp signals < 80% confidence
             confs = scalp_signal.get('confluences', [])

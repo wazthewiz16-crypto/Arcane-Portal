@@ -106,8 +106,29 @@ class AutoOptimizer:
 
         updates = {}
 
-        # 2b. Run Self-Healing Backtest to optimize thresholds (Upgrade 4)
-        opt_swing, opt_scalp = self._run_self_healing_backtest(lookback_days=14)
+        # 2b. Run Multi-Horizon Self-Improvement Engine (7, 14, 30, 60 days)
+        try:
+            from detection.multi_horizon_optimizer import MultiHorizonOptimizer
+            mho = MultiHorizonOptimizer(self.datastore)
+            horizon_data = mho.analyze_horizons([7, 14, 30, 60])
+            gating_adjustments = mho.determine_adaptive_gating(horizon_data)
+            
+            # Save gating settings to DB
+            for st, adj in gating_adjustments.items():
+                self.datastore.set_setting(f"GATING_PENALTY_{st}", str(adj['penalty']))
+                self.datastore.set_setting(f"HALT_{st}", "true" if adj['halt'] else "false")
+                
+            opt_swing, opt_scalp = mho.optimize_thresholds(horizon_data)
+            
+            # Send Multi-Horizon Report to Discord
+            report_text = mho.format_discord_report(horizon_data, gating_adjustments, opt_swing or current_swing, opt_scalp or current_scalp)
+            from integrations.discord_notifier import DiscordNotifier
+            notifier = DiscordNotifier()
+            notifier.send_message(report_text)
+            logger.info("Multi-Horizon Self-Improvement optimization executed and posted to Discord.")
+        except Exception as e:
+            logger.error(f"Error executing Multi-Horizon Optimizer: {e}")
+            opt_swing, opt_scalp = self._run_self_healing_backtest(lookback_days=14)
 
         # 3. Per-type win rate analysis (Dynamic Self-Healing vs Heuristics)
         by_type = breakdowns.get('by_signal_type', {})
@@ -119,7 +140,7 @@ class AutoOptimizer:
 
         if opt_swing is not None:
             logger.info(f"Self-Healing: using optimized Swing threshold {opt_swing} (R-maximized)")
-            proposed_swing = float(opt_swing)
+            proposed_swing = max(float(opt_swing), 68.0)
         else:
             swing_update = self._decide_threshold(
                 label='SWING', current=current_swing,
@@ -131,7 +152,7 @@ class AutoOptimizer:
 
         if opt_scalp is not None:
             logger.info(f"Self-Healing: using optimized Scalp threshold {opt_scalp} (R-maximized)")
-            proposed_scalp = float(opt_scalp)
+            proposed_scalp = max(float(opt_scalp), 72.0)
         else:
             scalp_update = self._decide_threshold(
                 label='SCALP', current=current_scalp,
