@@ -321,6 +321,14 @@ class MangoSignalDetector:
         for row in latest_data:
             timeframes[row['timeframe']] = row
         
+        # Asset Expectancy Priority Boost for Tier 1 Majors
+        TIER_1_MAJORS = ['BTC', 'ETH', 'SOL', 'NDX', 'SPX', 'US30']
+        if asset_name.upper() in TIER_1_MAJORS:
+            if swing_signal:
+                swing_signal['confidence'] = min(100.0, swing_signal['confidence'] + 5.0)
+            if scalp_signal:
+                scalp_signal['confidence'] = min(100.0, scalp_signal['confidence'] + 5.0)
+
         # Analyze - Swing signals
         swing_signal = self._detect_swing_signal(asset_name, timeframes)
         min_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING))
@@ -1443,10 +1451,11 @@ class MangoSignalDetector:
             if risk <= 0:
                 return None
             
-            # TP based on timeframe-specific RR ratio
-            take_profit = entry_price + (risk * rr_ratio)
-            # Partial TP at exactly +1R (close 50%, move SL to breakeven)
-            partial_tp = entry_price + risk
+            # TP based on timeframe-specific RR ratio (at least +2.2R for swings, +1.8R for scalps)
+            rr_target = max(rr_ratio, 2.2 if not is_scalp else 1.8)
+            take_profit = entry_price + (risk * rr_target)
+            # Partial TP1 at +1.2R (secures partial profit, locks breakeven+)
+            partial_tp = entry_price + (risk * 1.2)
             
         else:
             # OPTION B: Use Mango Dynamic Upper Boundary (entry_up) as natural stop
@@ -1466,9 +1475,10 @@ class MangoSignalDetector:
                 return None
             
             # TP based on timeframe-specific RR ratio
-            take_profit = entry_price - (risk * rr_ratio)
-            # Partial TP at exactly +1R (close 50%, move SL to breakeven)
-            partial_tp = entry_price - risk
+            rr_target = max(rr_ratio, 2.2 if not is_scalp else 1.8)
+            take_profit = entry_price - (risk * rr_target)
+            # Partial TP1 at +1.2R (secures partial profit, locks breakeven+)
+            partial_tp = entry_price - (risk * 1.2)
         
         # Calculate actual RR ratio
         actual_rr = abs(take_profit - entry_price) / risk

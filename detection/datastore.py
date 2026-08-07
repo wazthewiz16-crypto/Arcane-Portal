@@ -792,8 +792,28 @@ class MangoDataStore:
                 candle_high = latest_prices[0].get('high') or current_price
                 candle_low = latest_prices[0].get('low') or current_price
                 is_long = 'LONG' in signal_type
+                is_scalp = 'SCALP' in signal_type
                 now = datetime.utcnow().isoformat()
                 
+                # ── Time-Based "Dead Trade" Invalidation (Cut Stagnant Losses) ──
+                entry_time_str = signal.get('entry_time')
+                hours_open = 0.0
+                if entry_time_str:
+                    try:
+                        clean_time = str(entry_time_str).replace('Z', '')
+                        entry_dt = datetime.fromisoformat(clean_time)
+                        hours_open = (datetime.utcnow() - entry_dt).total_seconds() / 3600.0
+                    except Exception:
+                        hours_open = 0.0
+                        
+                max_hours = 12.0 if is_scalp else 36.0
+                if not partial_hit and hours_open >= max_hours:
+                    self._execute_query(conn, """
+                        UPDATE signals SET status = 'TIME_EXPIRED', updated_at = ? WHERE id = ?
+                    """, (now, signal_id))
+                    logger.info(f"⏳ Time-Stop Loss: {asset_name} {signal_type} open for {hours_open:.1f}h without reaching TP1 (+1.2R). Closed early.")
+                    continue
+
                 # ── Stage 0: Trend Reversal Exit Check ──
                 # Close trade if latest 4H/1D scrape flips contrary to trade direction
                 latest_scrapes = self._fetch_query(conn, """
@@ -824,15 +844,16 @@ class MangoDataStore:
                     continue
                 
                 if is_long:
-                    # ── Stage 1: Partial TP hit → move SL to breakeven ──
+                    # ── Stage 1: Partial TP (+1.2R) hit → move SL to Breakeven+ ──
                     if partial_tp and not partial_hit and candle_high >= partial_tp:
+                        be_sl = entry_price + abs(entry_price - stop_loss) * 0.1
                         self._execute_query(conn, """
                             UPDATE signals
                             SET partial_tp_hit = TRUE, stop_loss = ?, updated_at = ?
                             WHERE id = ?
-                        """, (entry_price, now, signal_id))
-                        logger.info(f"Partial TP hit for {asset_name} LONG — SL moved to breakeven ({entry_price})")
-                        stop_loss = entry_price  # Use updated SL for same-cycle check
+                        """, (be_sl, now, signal_id))
+                        logger.info(f"Partial TP (+1.2R) hit for {asset_name} LONG — SL locked at Breakeven+ ({be_sl:.4f})")
+                        stop_loss = be_sl
                         partial_hit = True
 
                     # ── Stage 2: Full TP or SL ──
@@ -847,15 +868,16 @@ class MangoDataStore:
                         """, (status, now, signal_id))
 
                 else:  # SHORT
-                    # ── Stage 1: Partial TP hit → move SL to breakeven ──
+                    # ── Stage 1: Partial TP (+1.2R) hit → move SL to Breakeven+ ──
                     if partial_tp and not partial_hit and candle_low <= partial_tp:
+                        be_sl = entry_price - abs(stop_loss - entry_price) * 0.1
                         self._execute_query(conn, """
                             UPDATE signals
                             SET partial_tp_hit = TRUE, stop_loss = ?, updated_at = ?
                             WHERE id = ?
-                        """, (entry_price, now, signal_id))
-                        logger.info(f"Partial TP hit for {asset_name} SHORT — SL moved to breakeven ({entry_price})")
-                        stop_loss = entry_price
+                        """, (be_sl, now, signal_id))
+                        logger.info(f"Partial TP (+1.2R) hit for {asset_name} SHORT — SL locked at Breakeven+ ({be_sl:.4f})")
+                        stop_loss = be_sl
                         partial_hit = True
 
                     # ── Stage 2: Full TP or SL ──
