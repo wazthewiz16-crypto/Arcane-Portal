@@ -646,6 +646,12 @@ class MangoSignalDetector:
                 continue  # LTF must be explicitly bullish for a LONG (not just non-SHORT)
             if htf_direction == 'SHORT' and ltf_direction != 'SHORT':
                 continue  # LTF must be explicitly bearish for a SHORT (not just non-LONG)
+                
+            ltf_mutanabby = ltf_data.get('mutanabby_sig') or ''
+            if htf_direction == 'LONG' and ltf_mutanabby in ['Sell', 'Strong Sell']:
+                continue  # Don't long into Mutanabby Sell
+            if htf_direction == 'SHORT' and ltf_mutanabby in ['Buy', 'Strong Buy']:
+                continue  # Don't short into Mutanabby Buy
             # -------------------------------------
 
             # Check LTF entry conditions

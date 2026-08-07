@@ -794,6 +794,35 @@ class MangoDataStore:
                 is_long = 'LONG' in signal_type
                 now = datetime.utcnow().isoformat()
                 
+                # ── Stage 0: Trend Reversal Exit Check ──
+                # Close trade if latest 4H/1D scrape flips contrary to trade direction
+                latest_scrapes = self._fetch_query(conn, """
+                    SELECT trend, mutanabby_sig, timeframe FROM scrapes
+                    WHERE name = ? AND timeframe IN ('1d', '4h')
+                    ORDER BY timestamp DESC
+                    LIMIT 2
+                """, (asset_name,))
+                
+                reversal_triggered = False
+                for sc in latest_scrapes:
+                    sc_trend = sc.get('trend') or ''
+                    sc_mutanabby = sc.get('mutanabby_sig') or ''
+                    if is_long:
+                        if 'Bearish' in sc_trend or sc_mutanabby in ['Sell', 'Strong Sell']:
+                            reversal_triggered = True
+                            break
+                    else:  # SHORT
+                        if 'Bullish' in sc_trend or sc_mutanabby in ['Buy', 'Strong Buy']:
+                            reversal_triggered = True
+                            break
+                            
+                if reversal_triggered:
+                    self._execute_query(conn, """
+                        UPDATE signals SET status = 'REVERSAL_EXIT', updated_at = ? WHERE id = ?
+                    """, (now, signal_id))
+                    logger.info(f"🔄 Trend Reversal Exit for {asset_name} {'LONG' if is_long else 'SHORT'} — 1D/4H turned contrary.")
+                    continue
+                
                 if is_long:
                     # ── Stage 1: Partial TP hit → move SL to breakeven ──
                     if partial_tp and not partial_hit and candle_high >= partial_tp:
