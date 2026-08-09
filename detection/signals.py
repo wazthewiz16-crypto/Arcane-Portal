@@ -321,6 +321,12 @@ class MangoSignalDetector:
         for row in latest_data:
             timeframes[row['timeframe']] = row
         
+        # Analyze - Swing signals
+        swing_signal = self._detect_swing_signal(asset_name, timeframes)
+        
+        # Scalp signals
+        scalp_signal = self._detect_scalp_signal(asset_name, timeframes)
+
         # Asset Expectancy Priority Boost for Tier 1 Majors
         TIER_1_MAJORS = ['BTC', 'ETH', 'SOL', 'NDX', 'SPX', 'US30']
         if asset_name.upper() in TIER_1_MAJORS:
@@ -329,8 +335,49 @@ class MangoSignalDetector:
             if scalp_signal:
                 scalp_signal['confidence'] = min(100.0, scalp_signal['confidence'] + 5.0)
 
-        # Analyze - Swing signals
-        swing_signal = self._detect_swing_signal(asset_name, timeframes)
+        # ── Timeframe Conflict Decision Matrix (Dominant Local Trend) ──
+        # Resolves mixed signals (e.g. 4D Bearish vs 1D/4H Bullish + Dashboard LONG)
+        d1_data = timeframes.get('1d')
+        h4_data = timeframes.get('4h')
+        d1_dir = self._get_htf_direction(d1_data) if d1_data else None
+        h4_dir = self._get_htf_direction(h4_data) if h4_data else None
+
+        dash_trend = 'NEUTRAL'
+        try:
+            with self.datastore.get_connection() as conn:
+                m_rows = self.datastore._fetch_query(conn, "SELECT value FROM settings WHERE key = 'MANGO_DASHBOARD_STATE' LIMIT 1")
+                if m_rows and m_rows[0].get('value'):
+                    import json
+                    m_state = json.loads(m_rows[0]['value'])
+                    dash_trend = str(m_state.get('market_trend', 'NEUTRAL')).upper()
+        except Exception:
+            dash_trend = 'NEUTRAL'
+
+        # Rule 1: Dominant Local Bullish Impulse (1D Bullish + 4H Bullish + Dashboard LONG)
+        if d1_dir == 'LONG' and h4_dir == 'LONG' and dash_trend in ['LONG', 'NEUTRAL']:
+            if swing_signal and swing_signal.get('direction') == 'SHORT':
+                logger.info(f"🚫 Timeframe Conflict Filter: {asset_name} Swing SHORT blocked (Dominant 1D/4H/Dashboard local trend is LONG).")
+                swing_signal = None
+            if scalp_signal and scalp_signal.get('direction') == 'SHORT':
+                logger.info(f"🚫 Timeframe Conflict Filter: {asset_name} Scalp SHORT blocked (Dominant 1D/4H/Dashboard local trend is LONG).")
+                scalp_signal = None
+
+        # Rule 2: Dominant Local Bearish Impulse (1D Bearish + 4H Bearish + Dashboard SHORT)
+        elif d1_dir == 'SHORT' and h4_dir == 'SHORT' and dash_trend in ['SHORT', 'NEUTRAL']:
+            if swing_signal and swing_signal.get('direction') == 'LONG':
+                logger.info(f"🚫 Timeframe Conflict Filter: {asset_name} Swing LONG blocked (Dominant 1D/4H/Dashboard local trend is SHORT).")
+                swing_signal = None
+            if scalp_signal and scalp_signal.get('direction') == 'LONG':
+                logger.info(f"🚫 Timeframe Conflict Filter: {asset_name} Scalp LONG blocked (Dominant 1D/4H/Dashboard local trend is SHORT).")
+                scalp_signal = None
+
+        # Rule 3: Conflicting Chop Filter (1D Bearish vs 4H Bullish & Dashboard Neutral)
+        elif d1_dir == 'SHORT' and h4_dir == 'LONG' and dash_trend == 'NEUTRAL':
+            logger.info(f"🚫 Timeframe Conflict Filter: {asset_name} signals blocked (Conflicting Chop: 1D Bearish vs 4H Bullish & Dashboard Neutral).")
+            swing_signal = None
+            scalp_signal = None
+
+        # Process filtered Swing signals
         min_swing = float(self.datastore.get_setting("MIN_CONFIDENCE_SWING", settings.MIN_CONFIDENCE_SWING))
         if swing_signal:
             sig_type = swing_signal['signal_type']
@@ -344,7 +391,6 @@ class MangoSignalDetector:
                 swing_signal = None
 
         if swing_signal and swing_signal['confidence'] >= min_swing:
-            # Confluence Filter: Require at least 1 Mutanabby/TK Cross confluence for swing signals < 75% confidence
             confs = swing_signal.get('confluences', [])
             if swing_signal['confidence'] < 75.0 and not confs:
                 logger.info(f"🚫 Confluence Blocker: {asset_name} Swing blocked (conf {swing_signal['confidence']:.1f}% < 75% and zero confluences)")
