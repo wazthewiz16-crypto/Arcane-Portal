@@ -4,54 +4,26 @@
 
 ![Arcane Portal Dashboard](https://i.imgur.com/placehold.png)
 
-## Features
-
-- 🔮 **Automated Signal Detection**: Swing and scalp signals using precise two-timeframe alignment
-- 🥭 **Mango Research Premium Dashboard Integration**: Natively scrapes `app.mangoresearch.co` in the background (with 1-hour rate-limiting to capture badge flips twice as fast) using Playwright. Captures high-fidelity individual asset trend badges, asset volatility, global market trend, and overall market volatility:
-  - **Global Trend Opposite Blocking:** Blocks LONG signals if overall market trend is SHORT, and SHORT signals if overall market trend is LONG.
-  - **Refined Volatility Quality Gates:** Low volatility (`<30` - Blue) bypasses compression filters and gets a `+10%` confidence boost, while high overall or high timeframe (`4H`, `12H`, `1D`) volatility `>= MANGO_VOLATILITY_THRESHOLD` (configurable database setting, set to `85`) blocks entries completely.
-  - **Custom MTF Button Preset Verification:** Automatically validates your signals against the custom **Mango Bullish** (4H, 12H, 1D Golden Cross + 2D, 4D LONG) and **Mango Bearish** (4H, 12H, 1D Death Cross + 2D, 4D SHORT) dashboard presets.
-  - **Gold Embed Alerts:** Standard signals display dedicated premium confluence metrics, while dashboard-native badge flips fire separate, visually stunning gold-coloured alerts with a multi-timeframe alignment grid.
-- 🧠 **Market Regime Detection (ML Upgraded)**: Self-correcting Machine Learning (Random Forest) based system trained on historical 4H rolling data that classifies market conditions as TRENDING or RANGING and dynamically adjusts filters. The model automatically retrains itself every Saturday at 5:00 AM EST and pushes its metrics straight to Discord, featuring:
-  - **Outcome-Based Labeling:** Dynamically maps time windows to actual trade outcomes (winners vs. losers from `signals` table) with expert heuristic fallbacks.
-  - **Recency-Weighted Training:** Applies exponential decay weights with a **30-day half-life** to favor recent market cycles.
-  - **Walk-Forward Chronological Parameter Tuning:** Conducts grid search over 27 parameters on time-series splits to completely prevent future data leakage (lookahead bias).
-- 🏆 **Dynamic Setup Tiering (Isolating A+ Trades)**: Signals are classified into distinct quality tiers during detection and persistently saved in the database:
-  - **Tier A+ (Ultra Setup):** Requires $\ge 85\%$ confidence, low volatility compression ($<30$ - blue), multi-timeframe alignment, $\ge 2$ confirming technical flags, and a predicted `TRENDING` ML market regime.
-  - **Tier A (High Conviction):** Requires $\ge 70\%$ confidence, healthy volatility ($<60$), and $\ge 1$ confirming flag.
-  - **Tier B (Standard Setup):** Standard confluence signals.
-  - **Discord Visualization:** Styled with custom border colors (Vibrant Gold `0xF1C40F` for Tier A+) and prepended with prominent setup headers (e.g. `🏆 TIER A+ ULTRA SETUP`) containing detailed italicized explanations. Direct support for strict trade-frequency disciplines!
-- 🤖 **Auto-Optimizer**: Runs continually to dynamically adjust confidence thresholds up or down based on recent win rates, frequency, and detected market regime, preventing dry spells and system death-spirals.
-- 📡 **Trade Radar**: Automatically pushes the top 5 "Prime" active trades (ideal pullbacks and near-entry trades) to Discord 4 times a day, allowing you to catch high-probability setups without watching charts.
-- 🌙 **EOD Summary & Outlook (9:00 PM EST)**: Pushes a comprehensive daily wrap-up to Discord including full-day watchlist returns, top session gainers/losers, daily signal performance (win rate, realized PnL in R-multipliers), and a bulleted list of today's executed trades with status emojis.
-- 🤖 **Interactive Discord Command Bot**: Standalone bot (`run_bot.py` running 24/7 via `Procfile`) that listens for prefix commands: `!radar` to manually run the trade radar, `!conditions` to print real-time regime decisions and Mango dashboard indicators, `!optimizer` to run the auto-optimizer on-demand, and `!brief`/`!afternoon`/`!evening` to generate daily briefs manually.
-- 📊 **Real-time Dashboard**: Beautiful Streamlit interface with live updates, active signals, historical performance, dynamic levels (15m through 4d), and system health metrics.
-- 🧪 **Strategy Backtester & Parameter Optimizer**: Built directly into the dashboard, supporting TV CSV/TXT uploads, automated column mapping with confluences, database persistence (SQLite/PostgreSQL) to save historical simulations, side-by-side run comparisons, and grid-search parameter sweeps to maximize profitability.
-- 💬 **Discord Alerts**: Instant notifications with rich embeds (TP/SL/RR details), **dual TradingView screenshots** (HTF context chart + LTF entry chart), and automated optimizer updates.
-- 🕒 **Weekend Optimization Protocol**: Automatically reduces Railway compute costs by 75% on weekends by skipping 15-minute cron intervals, completely blacking out closed TradFi markets, and lowering Crypto scraping to scalp-only timeframes.
-- 🎯 **Smart Confidence Scoring**:
-  - **Swing Default**: 72% minimum confidence (Auto-adjusts between 60-85%)
-  - **Scalp Default**: 75% minimum confidence (Auto-adjusts between 65-88%)
-- 📉 **Balanced Signal Logic**:
-  - **Trend Ribbon Reading**: Accurately calculates trend direction even when TV text is null using D1/D2 structural relationship.
-  - **Entry Zone**: Price must be within the Mango Dynamic zone boundaries. No additional zone position filter — the indicator defines valid entries.
-  - **Candle Validation**: Minimum 15% body (allows pin-bars), Momentum confirmation (Close within top/bottom 80%).
-  - **Equilibrium Tracker**: Color-aware band filtering — GREEN/RED (expanding) confirms directional conviction, BLUE/ORANGE (compressing) signals caution.
-  - **Grandmaster Filter**: Swing trades respect the Daily HTF trend—never fights opposite momentum.
-  - **Stop Loss**: Mango Dynamic boundaries + timeframe-specific buffers + enforced minimum risk gaps to avoid micro-wicks.
-  - **Partial Take Profit (1R → Breakeven)**: When price moves +1R in your favour the system marks partial TP hit, moves the stop-loss to the entry price (breakeven) and lets the remaining position ride to the full target. Losing trades that reached +1R before reversing now close as `BREAKEVEN` instead of `SL_HIT`.
-  - **Risk/Reward Scaling**: Swings target 2.75R; Scalps target 1.75R.
-- 🚫 **Dynamic Correlated Positions Cap**: Dynamically adjusts active crypto position limits (between 1 and 3) based on BTC volatility, and auto-loosens the cap by `+1` (up to a maximum of 3) when 24h signal frequency is critically low (`< 0.3` signals/hour) to prevent starving the system during dry market phases. When the cap is reached new signals in that direction are suppressed until an existing one closes, capping portfolio-wide correlated risk.
-- 📐 **Minimum SL Floor for Crypto Scalps**: Crypto scalp stop-losses are now enforced to a minimum of 1.8% from entry (up from 1.5%) to avoid being wick-hunted on volatile 15m candles.
-- 🌍 **Multi-Asset Support**: Broad market support handling both Crypto and TradFi asset specifics.
-- ₿ **BTC Macro Context Filter**: All altcoin signals are validated against the live BTC price trend and BTC Dominance (BTC.D) direction before firing. The system implements the full Bitcoin Dominance Cycle:
-  - **ALT_DUMP** (BTC.D ↑ + BTC ↓): Altcoin LONG signals blocked entirely; SHORT signals get +7 confidence bonus.
-  - **ALT_BEARISH** (BTC.D ↑ + BTC ↑): Altcoin LONG signals blocked; SHORT signals get +3 confidence bonus.
-  - **ALT_SEASON** (BTC.D ↓ + BTC ↑): Altcoin SHORT signals blocked; LONG signals get +5 confidence bonus.
-  - **ALT_NEUTRAL / ALT_SLIGHTLY_BULLISH**: Small confidence adjustments with no hard blocks.
-  - BTC itself and all TradFi assets are exempt from this filter.
-- 🧹 **Automated Database Maintenance**: The system runs a silent self-cleaning protocol on every startup. It permanently deletes massive Discord screenshots older than 7 days and raw scraper data older than 60 days, ensuring your Railway PostgreSQL database stays highly optimized and never breaches the 500 MB capacity limit.
-- ☁️ **Cloud Native**: Deployed on Railway using a Neon Serverless PostgreSQL database.
+- 📈 **System Expectancy Optimization Suite**: Engineered to maximize average win size ($R_{\text{win}} \ge 2.5R - 3.0R$) and positive expectancy:
+  - **Favorable Zone Entry Positioning:** Requires price to be in the favorable lower 45% (Discount) for LONG entries and upper 45% (Premium) for SHORT entries, guaranteeing tight risk and strong upside room.
+  - **Dynamic Target Expansion (+3.0R):** Setups confirmed by Mutanabby AI or TK Cross indicators automatically expand TP2 targets to **+3.0R** (standard +2.2R), driving average win size significantly higher than average losses.
+  - **Tiered TPs & Breakeven+ Locking:** Partial TP1 at +1.2R secures 30% profit and locks Stop Loss to **Breakeven+ (+0.1R)**, making the trade 100% risk-free.
+  - **Time-Based Dead-Trade Invalidation:** Automatically closes stagnant trades open > 36 hours (swings) or > 12 hours (scalps) without hitting TP1 as `TIME_EXPIRED` to cut chop losses early.
+  - **Asset Expectancy Priority Boost:** Grants +5% confidence boost to Tier 1 Major Assets (`BTC`, `ETH`, `SOL`, `NDX`, `SPX`, `US30`).
+- 🧠 **Multi-Horizon Self-Improvement Engine (7, 14, 30, 60 Days)**: Continuously evaluates trade performance across rolling 7d, 14d, 30d, and 60d lookback windows:
+  - **Adaptive Signal-Type Gating & Auto-Halt:** Automatically halts underperforming signal types (e.g. 0% win rate over 7d) or applies +5%/+10% confidence penalties. Access is automatically restored when 7d win rate recovers to $\ge 50\%$.
+  - **Discord Self-Improvement Reports:** Automatically posts multi-horizon performance breakdown matrices and gating summaries directly to Discord.
+- 🔄 **Stage 0 Trend Reversal Exits & Contrarian Blockers**:
+  - **Reversal Exits:** Instantly closes active open positions with `REVERSAL_EXIT` when 1D or 4H timeframes turn contrary (e.g. closing open shorts when 1D/4H flip green or emit Mutanabby BUY signals).
+  - **Mutanabby AI Contrarian Blockers:** Strictly blocks short entries when lower timeframes show Mutanabby BUY labels / green ribbons, and vice versa for long entries.
+- 🔮 **Indicator Confluence Suite (Mutanabby AI & Mango Ribbon TK Crosses)**:
+  - Scrapes active values for `Buy`, `Sell`, `Strong Buy`, `Strong Sell` (Mutanabby AI) and `TK Bull Cross` / `TK Bear Cross` (Mango Ribbon) directly from TradingView Data Window legends.
+  - Applies dynamic confidence boosts (+15% HTF Strong signals, +10% LTF TK Crosses) and counter-signal penalties.
+- ⏳ **Expanded Timeframe Coverage (1W, 12H, 1H)**:
+  - **Weekly (1W) Scraper Support:** Daily 00:00 UTC weekly candle scraping mapped to layout overrides (`TRADINGVIEW_LAYOUT_1W`).
+  - **Intermediate Swings:** `1w->1d`, `4d->1d`, `1w->4h`, `4d->4h`, `1d->4h`, `1d->1h`, `12h->1h`.
+  - **Hourly Scalps (`4h->1h`, `12h->1h`):** Evaluates short-term entries on 1H charts to bypass 15m market noise.
+- 🌙 **Overnight TradFi Compute Optimization**: Automatically bypasses traditional market indices (`NDX`, `SPX`, `US30`, `DXY`, etc.) overnight (6:00 PM to 8:00 AM EST) when TradFi markets are closed, saving Railway compute for 24/7 crypto scans.
 
 ---
 
@@ -261,7 +233,22 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-07-08
+**Latest Update:** 2026-08-09
+
+- **System Expectancy Optimization Suite & Multi-Horizon Self-Improvement Engine (NEW)**:
+  - 📈 **Expectancy & Win Size Optimization:** Overhauled signal criteria to ensure Average Win Size ($R_{\text{win}} \ge 2.5R - 3.0R$) significantly exceeds average losses:
+    - **Favorable Zone Entry Positioning:** Requires entries to be in the favorable lower 45% (Discount) for LONGs and upper 45% (Premium) for SHORTs, guaranteeing tight risk and maximum upside room.
+    - **Dynamic Target Expansion (+3.0R):** Indicator confluence setups automatically expand TP2 targets to **+3.0R**.
+    - **Tiered TPs & Breakeven+ Locking:** Partial TP1 at +1.2R secures 30% profit and locks Stop Loss to **Breakeven+ (+0.1R)**.
+    - **Time-Based Dead-Trade Invalidation:** Automatically closes stagnant trades open > 36 hours (swings) or > 12 hours (scalps) without hitting TP1 as `TIME_EXPIRED`.
+    - **Asset Expectancy Priority Boost:** Grants +5% confidence boost to Tier 1 Major Assets (`BTC`, `ETH`, `SOL`, `NDX`, `SPX`, `US30`).
+  - 🧠 **Multi-Horizon Self-Improvement Engine (7, 14, 30, 60 Days):** Evaluates closed trade performance across rolling 7d, 14d, 30d, and 60d lookback windows. Features adaptive signal-type gating, auto-halt rules (on 0% 7d win rates), and automated Discord reports.
+  - 🔄 **Stage 0 Trend Reversal Exits & Contrarian Blockers:** Instantly closes active positions with `REVERSAL_EXIT` when 1D/4H flip green or emit Mutanabby BUY labels, preventing trapped counter-trend shorting.
+  - 🔮 **Indicator Confluence Suite:** Integrated `Mutanabby_AI` (`Buy`, `Sell`, `Strong Buy`, `Strong Sell`) and `Mango Ribbon` (`TK Bull Cross`, `TK Bear Cross`) legend parsing with dynamic confidence scoring.
+  - ⏳ **Expanded Timeframes (1W, 12H, 1H):** Added 1W weekly candle scraping, intermediate swing combinations (`1w->1d`, `1d->1h`, `12h->1h`), and 1H scalp entries to eliminate 15m noise.
+  - 🌙 **Overnight TradFi Compute Optimization:** Bypasses closed TradFi index assets overnight (6:00 PM to 8:00 AM EST) to save Railway compute for 24/7 crypto scans.
+
+**Previous Update:** 2026-07-08
 
 - **End of Day Summary & Interactive Discord Command Bot (NEW)**:
   - 🌙 **EOD Summary & Outlook (9:00 PM EST):** Extended the daily regime check framework to run an Evening EOD Check. Features full-day watchlist returns (6 AM - 9 PM EST), session top gainers/losers, daily signal execution stats (win rate, total trades, realized PnL in R-multipliers), and a bulleted list of today's executed trades with status emojis (🟢 TP_HIT, 🔴 SL_HIT, 🟡 BREAKEVEN, ⚡ ACTIVE).
