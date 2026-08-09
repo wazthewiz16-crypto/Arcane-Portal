@@ -719,7 +719,8 @@ class MangoSignalDetector:
                 is_scalp=False,
                 asset_type=self._get_asset_type(name),
                 asset_name=name,
-                buffer_pct=sl_buffer
+                buffer_pct=sl_buffer,
+                has_confluence=bool(confluences)
             )
             
             if not tp_sl:
@@ -877,7 +878,8 @@ class MangoSignalDetector:
                 is_scalp=True,
                 asset_type=self._get_asset_type(name),
                 asset_name=name,
-                buffer_pct=sl_buffer
+                buffer_pct=sl_buffer,
+                has_confluence=bool(confluences)
             )
             
             if not tp_sl:
@@ -1109,9 +1111,20 @@ class MangoSignalDetector:
         
         # --- END PHASE 1 IMPROVEMENTS ---
 
-        # 5. Check Entry Position
-        # Check if price is in entry zone
+        # 5. Check Entry Position & Favorable Zone Positioning
         in_zone = entry_down <= price <= entry_up
+        
+        # Favorable zone positioning (bottom 45% for Longs, top 45% for Shorts)
+        # Prevents taking entries at the bad end of the zone where risk/reward is poor
+        zone_range = abs(entry_up - entry_down)
+        if direction == 'LONG':
+            favorable_max = entry_down + (zone_range * 0.45)
+            if price > favorable_max:
+                return {'valid': False, 'reason': f'Entry price ({price:.4f}) is above favorable discount zone ceiling ({favorable_max:.4f})'}
+        else:  # SHORT
+            favorable_min = entry_up - (zone_range * 0.45)
+            if price < favorable_min:
+                return {'valid': False, 'reason': f'Entry price ({price:.4f}) is below favorable premium zone floor ({favorable_min:.4f})'}
         
         near_entry = False
         is_bounce = False
@@ -1122,18 +1135,12 @@ class MangoSignalDetector:
         
         if direction == 'LONG':
             # Check for bounce (Low wicked into zone)
-            # Must be above entry_down to be a valid bounce off support (not below it)
             if price > entry_down: 
-                # Touched zone (Low <= Top of zone)
                 if low <= entry_up:
                     is_bounce = True
             
-            # Valid if IN ZONE
             if in_zone:
                 valid = True
-                
-            # OR if Bounce + close to top (dynamic breakout capture)
-            # For swings, allow near-entry breakout capture. For scalps, strictly require in-zone.
             elif not is_scalp and is_bounce and price > entry_up and (price - entry_up) / entry_up < breakout_pct:
                 near_entry = True
                 valid = True
@@ -1393,7 +1400,8 @@ class MangoSignalDetector:
         is_scalp: bool = False,
         asset_type: str = 'crypto',
         asset_name: str = '',
-        buffer_pct: float = None
+        buffer_pct: float = None,
+        has_confluence: bool = False
     ) -> Optional[Dict]:
         """
         Calculate Take Profit and Stop Loss levels
@@ -1424,8 +1432,15 @@ class MangoSignalDetector:
                 else:
                     MIN_RISK_PCT = 0.055  # 5.5% min SL for altcoin swings
         
-        # Determine RR ratio — Phase 3: asset-specific lookup
+        # Determine RR ratio — Phase 3: asset-specific lookup & Confluence expansion
         profile = self.ASSET_RR_PROFILES.get(asset_name.upper(), self.DEFAULT_RR)
+        base_rr = profile['scalp_rr'] if is_scalp else profile['swing_rr']
+        
+        # Expand TP2 target to +3.0R for setups with indicator confluences
+        if has_confluence:
+            rr_ratio = max(base_rr, 3.0 if not is_scalp else 2.2)
+        else:
+            rr_ratio = max(base_rr, 2.2 if not is_scalp else 1.8)
         if is_scalp:
             if timeframe in ['3m', '5m']:
                 rr_ratio = 1.2
