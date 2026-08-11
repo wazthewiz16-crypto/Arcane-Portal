@@ -11,7 +11,7 @@ import json
 import logging
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from dotenv import load_dotenv
 
@@ -32,7 +32,7 @@ class StrategyResearcher:
 
     def load_historical_dataset(self, days: int = 60) -> pd.DataFrame:
         """Load historical scrape and price data from database."""
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         try:
             with self.datastore.get_connection() as conn:
                 query = """
@@ -229,11 +229,11 @@ class StrategyResearcher:
             target_rr = best_variant['target_rr']
             
             # Save parameters directly to PostgreSQL / SQLite settings datastore
-            self.datastore.save_setting("MIN_CONFIDENCE_SWING", str(int(min_conf)))
-            self.datastore.save_setting("MIN_CONFIDENCE_SCALP", str(int(min_conf + 4)))
-            self.datastore.save_setting("FAVORABLE_ZONE_PCT", str(zone_pct))
-            self.datastore.save_setting("OPTIMAL_TARGET_RR", str(target_rr))
-            self.datastore.save_setting("LAST_STRATEGY_RESEARCH_RUN", datetime.utcnow().isoformat())
+            self.datastore.set_setting("MIN_CONFIDENCE_SWING", str(int(min_conf)))
+            self.datastore.set_setting("MIN_CONFIDENCE_SCALP", str(int(min_conf + 4)))
+            self.datastore.set_setting("FAVORABLE_ZONE_PCT", str(zone_pct))
+            self.datastore.set_setting("OPTIMAL_TARGET_RR", str(target_rr))
+            self.datastore.set_setting("LAST_STRATEGY_RESEARCH_RUN", datetime.now(timezone.utc).isoformat())
             
             logger.info(f"⚙️ Autonomous Self-Correction Applied: Min Conf Swing = {min_conf}%, Zone Pct = {zone_pct*100:.0f}%, Target RR = {target_rr}R")
             return True
