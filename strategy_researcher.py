@@ -251,19 +251,22 @@ class StrategyResearcher:
         zone = best_variant.get('zone_pct', 0.65) * 100.0
         rr = best_variant.get('target_rr', 2.5)
 
-        fields = [
-            {"name": "⚙️ Applied Live Tuning", "value": f"• **Swing Confidence:** `{conf:.0f}%`\n• **Favorable Zone:** `{zone:.0f}%`\n• **Target Expectancy:** `{rr:.1f}R`", "inline": True},
-            {"name": "📊 Forward-Test Results (OOS)", "value": f"• **Win Rate:** `{oos.get('win_rate', 0)}%`\n• **Expectancy:** `+{oos.get('expectancy', 0)}R / trade`\n• **Net Realized PnL:** `+{oos.get('net_pnl', 0)}R`", "inline": True},
-            {"name": "🧪 Strategy Variants Tested", "value": f"Evaluated 24 strategy parameter combinations across In-Sample (30d) and Out-of-Sample (14d) forward windows.", "inline": False}
-        ]
+        msg = (
+            "🧬 **Autonomous Strategy Research & Evolutionary Digest**\n\n"
+            "The background research engine completed a walk-forward optimization cycle and self-corrected live parameters for positive expectancy:\n\n"
+            "⚙️ **Applied Live Tuning:**\n"
+            f"• **Swing Confidence:** `{conf:.0f}%`\n"
+            f"• **Favorable Zone:** `{zone:.0f}%`\n"
+            f"• **Target Expectancy:** `{rr:.1f}R`\n\n"
+            "📊 **Forward-Test Results (Out-of-Sample 14d):**\n"
+            f"• **Win Rate:** `{oos.get('win_rate', 0)}%`\n"
+            f"• **Expectancy:** `+{oos.get('expectancy', 0)}R / trade`\n"
+            f"• **Net Realized PnL:** `+{oos.get('net_pnl', 0)}R`\n\n"
+            "🧪 Evaluated 24 strategy parameter combinations across In-Sample (30d) and Out-of-Sample (14d) forward windows."
+        )
 
         try:
-            self.notifier.send_message(
-                title="🧬 Autonomous Strategy Research & Evolutionary Digest",
-                description="The background research engine completed a walk-forward optimization cycle and self-corrected live signal parameters for maximum positive expectancy.",
-                fields=fields,
-                color=0x9B59B6  # Amethyst Purple
-            )
+            self.notifier.send_message(msg)
             logger.info("Published Autonomous Strategy Research report to Discord.")
         except Exception as e:
             logger.error(f"Failed to send Discord research report: {e}")
