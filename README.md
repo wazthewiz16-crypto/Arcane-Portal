@@ -233,7 +233,15 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-08-09
+**Latest Update:** 2026-08-11
+
+- **Autonomous Strategy Researcher & Evolutionary Self-Correction Engine (NEW)**:
+  - 🔬 **Autonomous Background Researcher (`strategy_researcher.py`):** Runs continuous combinatorial grid-search backtests across 30-day In-Sample training windows and 14-day Out-of-Sample forward-test validation windows.
+  - ⚙️ **Self-Correcting Database Tuning:** Automatically adjusts live database settings (`MIN_CONFIDENCE_SWING`, `MIN_CONFIDENCE_SCALP`, `FAVORABLE_ZONE_PCT`, `OPTIMAL_TARGET_RR`) to the configuration that yields the highest positive expectancy.
+  - 🌊 **Unchoked Signal Flow:** Relaxed zone entry constraints to 65% and added a 36-hour Signal Drought Safety Valve to ensure high-quality signals fire smoothly without starving signal cadence.
+  - 🤖 **Discord Command Bot Integration:** Added `!research` / `!strategy` bot command to trigger walk-forward strategy optimization on-demand.
+
+**Previous Update:** 2026-08-09
 
 - **System Expectancy Optimization Suite & Multi-Horizon Self-Improvement Engine (NEW)**:
   - 📈 **Expectancy & Win Size Optimization:** Overhauled signal criteria to ensure Average Win Size ($R_{\text{win}} \ge 2.5R - 3.0R$) significantly exceeds average losses:
