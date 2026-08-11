@@ -406,6 +406,28 @@ async def run_scraper_and_detect():
                 except Exception as de:
                     print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
 
+    # ── STEP 5: Autonomous Strategy Researcher Engine ──
+    # Runs twice daily (at 4:00 AM EST and 4:00 PM EST) to backtest, forward-test, and self-correct settings
+    if now.hour in [4, 16] and now.minute < 30:
+        current_res_key = f"{now.strftime('%Y-%m-%d')}_{now.hour}"
+        last_res_run = datastore.get_setting("LAST_STRATEGY_RESEARCH_KEY")
+        if last_res_run != current_res_key:
+            print(f"\n[STEP 5] Initiating Autonomous Strategy Research & Evolutionary Engine...")
+            try:
+                from strategy_researcher import StrategyResearcher
+                researcher = StrategyResearcher(datastore)
+                researcher.run_research()
+                datastore.set_setting("LAST_STRATEGY_RESEARCH_KEY", current_res_key)
+                print(f"[OK] Autonomous Strategy Research completed successfully for key: {current_res_key}")
+            except Exception as e:
+                import traceback
+                err_msg = f"⚠️ [STEP 5] Error during Strategy Research: {e}\n\n{traceback.format_exc()}"
+                print(err_msg, file=sys.stderr)
+                try:
+                    notifier.send_error_alert(err_msg[:1900])
+                except Exception as de:
+                    print(f"Failed to send Discord error alert: {de}", file=sys.stderr)
+
     print(f"\n✅ Streaming Complete! {total_signals} new signals generated.")
     
     print("\n" + "=" * 60)

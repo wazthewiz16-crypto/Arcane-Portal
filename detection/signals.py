@@ -1160,15 +1160,15 @@ class MangoSignalDetector:
         # 5. Check Entry Position & Favorable Zone Positioning
         in_zone = entry_down <= price <= entry_up
         
-        # Favorable zone positioning (bottom 45% for Longs, top 45% for Shorts)
-        # Prevents taking entries at the bad end of the zone where risk/reward is poor
+        # Favorable zone positioning (bottom 65% for Longs, top 65% for Shorts)
+        # Allows entries across 65% of the zone so signal flow is not choked during pullbacks
         zone_range = abs(entry_up - entry_down)
         if direction == 'LONG':
-            favorable_max = entry_down + (zone_range * 0.45)
+            favorable_max = entry_down + (zone_range * 0.65)
             if price > favorable_max:
                 return {'valid': False, 'reason': f'Entry price ({price:.4f}) is above favorable discount zone ceiling ({favorable_max:.4f})'}
         else:  # SHORT
-            favorable_min = entry_up - (zone_range * 0.45)
+            favorable_min = entry_up - (zone_range * 0.65)
             if price < favorable_min:
                 return {'valid': False, 'reason': f'Entry price ({price:.4f}) is below favorable premium zone floor ({favorable_min:.4f})'}
         

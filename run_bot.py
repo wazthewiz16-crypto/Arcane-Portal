@@ -181,6 +181,22 @@ async def trigger_optimizer(ctx):
         await ctx.message.add_reaction("❌")
         await msg.edit(content=f"❌ Error running Auto-Optimizer: `{e}`")
 
+@bot.command(name="research", aliases=["strategy"])
+async def trigger_researcher(ctx):
+    """Trigger Autonomous Strategy Researcher & Evolutionary Engine manually"""
+    await ctx.message.add_reaction("🔄")
+    msg = await ctx.send("🔬 Initiating Autonomous Strategy Research & Walk-Forward Optimization...")
+    try:
+        from strategy_researcher import StrategyResearcher
+        researcher = StrategyResearcher()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, researcher.run_research)
+        await ctx.message.add_reaction("✅")
+        await msg.edit(content="✅ Autonomous Strategy Research cycle completed! Check Discord for evolutionary report.")
+    except Exception as e:
+        await ctx.message.add_reaction("❌")
+        await msg.edit(content=f"❌ Error running Strategy Researcher: `{e}`")
+
 @bot.command(name="brief")
 async def trigger_morning_brief(ctx):
     """Trigger Morning Trading Brief manually"""
