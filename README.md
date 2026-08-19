@@ -233,7 +233,14 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-08-11
+**Latest Update:** 2026-08-19
+
+- **Real-Time Market Velocity & Short-Squeeze Engine (NEW)**:
+  - 🚀 **Real-Time Short-Squeeze Detection:** Calculates 4-hour rolling watchlist returns on every 15-minute scrape interval. When watchlist moves $\ge +2.5\%$ in 4h OR BTC moves $\ge +3.0\%$, the system declares `BULLISH_BREAKOUT_SQUEEZE`, instantly blocks all SHORT signals, and executes immediate `SQUEEZE_EXIT` updates on active shorts to prevent drawdowns.
+  - ⚡ **Weekly Macro Anchor Override:** When a Short Squeeze is detected, the engine bypasses slow-moving Weekly (1W / 4D) bearish anchors, allowing 4H/1H bullish ribbon expansion to fire **Momentum LONG Breakouts** (+10% confidence boost) for top gainers (`ETH`, `HYPE`, `SOL`, `BTC`, `ARB`).
+  - 📡 **Trade Radar Purge:** Automatically purges SHORT setups from Trade Radar digests during bullish market pumps and replaces them with prime LONG breakout setups.
+
+**Previous Update:** 2026-08-11
 
 - **Autonomous Strategy Researcher & Evolutionary Self-Correction Engine (NEW)**:
   - 🔬 **Autonomous Background Researcher (`strategy_researcher.py`):** Runs continuous combinatorial grid-search backtests across 30-day In-Sample training windows and 14-day Out-of-Sample forward-test validation windows.
