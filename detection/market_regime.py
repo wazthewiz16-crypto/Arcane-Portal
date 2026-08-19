@@ -151,6 +151,90 @@ class MarketRegimeDetector:
                 'details': f'Error: {e}'
             }
 
+    def check_realtime_market_velocity(self) -> Dict:
+        """
+        Check real-time 4-hour market momentum to detect short squeezes / market flushes.
+        If watchlist pumps >= +2.5% in 4 hours OR BTC pumps >= +3.0%, declares BULLISH_BREAKOUT_SQUEEZE.
+        If watchlist dumps <= -2.5% in 4 hours OR BTC dumps <= -3.0%, declares BEARISH_FLUSH.
+        """
+        from datetime import datetime, timedelta, timezone
+        
+        try:
+            with self.datastore.get_connection() as conn:
+                # Query 4h price moves across all active assets
+                scrapes = self.datastore._fetch_query(conn, """
+                    SELECT name, close, timestamp FROM scrapes
+                    WHERE timeframe = '4h'
+                    ORDER BY timestamp DESC
+                    LIMIT 40
+                """)
+                
+            if not scrapes:
+                return {'state': 'NORMAL', 'short_blocked': False, 'long_blocked': False}
+                
+            # Group latest and prior 4h close prices per asset
+            asset_prices = {}
+            for row in scrapes:
+                name = row['name']
+                if name not in asset_prices:
+                    asset_prices[name] = []
+                asset_prices[name].append(row['close'])
+                
+            returns = []
+            btc_return = 0.0
+            
+            for name, prices in asset_prices.items():
+                if len(prices) >= 2 and prices[1] > 0:
+                    ret = (prices[0] - prices[1]) / prices[1] * 100.0
+                    returns.append(ret)
+                    if name.upper() == 'BTC':
+                        btc_return = ret
+                        
+            if not returns:
+                return {'state': 'NORMAL', 'short_blocked': False, 'long_blocked': False}
+                
+            avg_return = sum(returns) / len(returns)
+            
+            # Squeeze / Flush Thresholds
+            if avg_return >= 2.5 or btc_return >= 3.0:
+                self.datastore.set_setting("SHORT_SIGNALS_BLOCKED", "True")
+                self.datastore.set_setting("LONG_SIGNALS_BLOCKED", "False")
+                self.datastore.set_setting("MARKET_STATE", "BULLISH_BREAKOUT_SQUEEZE")
+                logger.info(f"🚀 Real-Time Short Squeeze Detected! Avg Watchlist Move: +{avg_return:.2f}%, BTC: +{btc_return:.2f}%. Short signals BLOCKED.")
+                
+                # Perform immediate purge/status update of active short signals
+                with self.datastore.get_connection() as conn:
+                    self.datastore._execute_query(conn, """
+                        UPDATE signals SET status = 'SQUEEZE_EXIT', updated_at = ?
+                        WHERE signal_type LIKE '%SHORT%' AND status = 'ACTIVE'
+                    """, (datetime.now(timezone.utc).isoformat(),))
+                    
+                return {'state': 'BULLISH_BREAKOUT_SQUEEZE', 'short_blocked': True, 'long_blocked': False}
+                
+            elif avg_return <= -2.5 or btc_return <= -3.0:
+                self.datastore.set_setting("SHORT_SIGNALS_BLOCKED", "False")
+                self.datastore.set_setting("LONG_SIGNALS_BLOCKED", "True")
+                self.datastore.set_setting("MARKET_STATE", "BEARISH_FLUSH")
+                logger.info(f"📉 Real-Time Bearish Flush Detected! Avg Watchlist Move: {avg_return:.2f}%, BTC: {btc_return:.2f}%. Long signals BLOCKED.")
+                
+                with self.datastore.get_connection() as conn:
+                    self.datastore._execute_query(conn, """
+                        UPDATE signals SET status = 'FLUSH_EXIT', updated_at = ?
+                        WHERE signal_type LIKE '%LONG%' AND status = 'ACTIVE'
+                    """, (datetime.now(timezone.utc).isoformat(),))
+                    
+                return {'state': 'BEARISH_FLUSH', 'short_blocked': False, 'long_blocked': True}
+                
+            else:
+                self.datastore.set_setting("SHORT_SIGNALS_BLOCKED", "False")
+                self.datastore.set_setting("LONG_SIGNALS_BLOCKED", "False")
+                self.datastore.set_setting("MARKET_STATE", "NORMAL")
+                return {'state': 'NORMAL', 'short_blocked': False, 'long_blocked': False}
+                
+        except Exception as e:
+            logger.error(f"Error checking real-time market velocity: {e}")
+            return {'state': 'NORMAL', 'short_blocked': False, 'long_blocked': False}
+
     def _compute_features(self, lookback_hours: int) -> Optional[Dict]:
         """
         Compute regime features from recent scrape data.

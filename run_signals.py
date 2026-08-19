@@ -70,6 +70,19 @@ async def run_scraper_and_detect():
     detector = MangoSignalDetector(datastore)
     notifier = DiscordNotifier()
     
+    # --- Real-Time Market Velocity & Short-Squeeze Check ---
+    try:
+        from detection.market_regime import MarketRegimeDetector
+        regime_detector = MarketRegimeDetector(datastore)
+        velocity = regime_detector.check_realtime_market_velocity()
+        if velocity.get('state') == 'BULLISH_BREAKOUT_SQUEEZE':
+            print("🚀 [VELOCITY ENGINE] Short Squeeze Detected! Short signals BLOCKED. Active Shorts updated to SQUEEZE_EXIT.")
+        elif velocity.get('state') == 'BEARISH_FLUSH':
+            print("📉 [VELOCITY ENGINE] Bearish Flush Detected! Long signals BLOCKED. Active Longs updated to FLUSH_EXIT.")
+    except Exception as e:
+        print(f"[VELOCITY ENGINE] Warning: {e}")
+    # --------------------------------------------------------
+    
     # --- Mango Research Premium Dashboard Scraper (1-hour rate-limit cache update) ---
     # Quiet hours: 11 PM – 5 AM EST — no scraping or signals during sleep hours
     _mango_quiet = 23 <= now.hour or now.hour < 5

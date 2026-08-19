@@ -335,6 +335,34 @@ class MangoSignalDetector:
             if scalp_signal:
                 scalp_signal['confidence'] = min(100.0, scalp_signal['confidence'] + 5.0)
 
+        # ── Real-Time Market Velocity Squeeze Blockers ──
+        short_blocked = str(self.datastore.get_setting("SHORT_SIGNALS_BLOCKED", "False")).lower() == "true"
+        long_blocked = str(self.datastore.get_setting("LONG_SIGNALS_BLOCKED", "False")).lower() == "true"
+        market_state = str(self.datastore.get_setting("MARKET_STATE", "NORMAL")).upper()
+
+        if short_blocked:
+            if swing_signal and swing_signal.get('direction') == 'SHORT':
+                logger.info(f"🚀 Bullish Short Squeeze Active: {asset_name} Swing SHORT blocked.")
+                swing_signal = None
+            if scalp_signal and scalp_signal.get('direction') == 'SHORT':
+                logger.info(f"🚀 Bullish Short Squeeze Active: {asset_name} Scalp SHORT blocked.")
+                scalp_signal = None
+
+        if long_blocked:
+            if swing_signal and swing_signal.get('direction') == 'LONG':
+                logger.info(f"📉 Bearish Flush Active: {asset_name} Swing LONG blocked.")
+                swing_signal = None
+            if scalp_signal and scalp_signal.get('direction') == 'LONG':
+                logger.info(f"📉 Bearish Flush Active: {asset_name} Scalp LONG blocked.")
+                scalp_signal = None
+
+        # Give LONG breakouts a +10% confidence boost during Bullish Short Squeezes
+        if market_state == 'BULLISH_BREAKOUT_SQUEEZE':
+            if swing_signal and swing_signal.get('direction') == 'LONG':
+                swing_signal['confidence'] = min(100.0, swing_signal['confidence'] + 10.0)
+            if scalp_signal and scalp_signal.get('direction') == 'LONG':
+                scalp_signal['confidence'] = min(100.0, scalp_signal['confidence'] + 10.0)
+
         # ── Timeframe Conflict Decision Matrix (Dominant Local Trend) ──
         # Resolves mixed signals (e.g. 4D Bearish vs 1D/4H Bullish + Dashboard LONG)
         d1_data = timeframes.get('1d')

@@ -37,8 +37,17 @@ def run_trade_radar():
         current_prices[scrape['name'].strip().upper()] = float(scrape['close'])
         
     # Evaluate signals
+    short_blocked = str(datastore.get_setting("SHORT_SIGNALS_BLOCKED", "False")).lower() == "true"
+    long_blocked = str(datastore.get_setting("LONG_SIGNALS_BLOCKED", "False")).lower() == "true"
+
     evaluated = []
     for sig in active_signals:
+        sig_type = str(sig.get('signal_type', ''))
+        if short_blocked and 'SHORT' in sig_type:
+            continue
+        if long_blocked and 'LONG' in sig_type:
+            continue
+
         asset_key = sig['asset_name'].strip().upper()
         cur_price = current_prices.get(asset_key)
         
