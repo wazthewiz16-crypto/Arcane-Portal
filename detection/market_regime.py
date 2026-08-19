@@ -194,6 +194,7 @@ class MarketRegimeDetector:
                 return {'state': 'NORMAL', 'short_blocked': False, 'long_blocked': False}
                 
             avg_return = sum(returns) / len(returns)
+            prev_state = str(self.datastore.get_setting("MARKET_STATE", "NORMAL")).upper()
             
             # Squeeze / Flush Thresholds
             if avg_return >= 2.5 or btc_return >= 3.0:
@@ -203,11 +204,32 @@ class MarketRegimeDetector:
                 logger.info(f"🚀 Real-Time Short Squeeze Detected! Avg Watchlist Move: +{avg_return:.2f}%, BTC: +{btc_return:.2f}%. Short signals BLOCKED.")
                 
                 # Perform immediate purge/status update of active short signals
+                closed_count = 0
                 with self.datastore.get_connection() as conn:
-                    self.datastore._execute_query(conn, """
-                        UPDATE signals SET status = 'SQUEEZE_EXIT', updated_at = ?
-                        WHERE signal_type LIKE '%SHORT%' AND status = 'ACTIVE'
-                    """, (datetime.now(timezone.utc).isoformat(),))
+                    active_shorts = self.datastore._fetch_query(conn, "SELECT id, name FROM signals WHERE signal_type LIKE '%SHORT%' AND status = 'ACTIVE'")
+                    closed_count = len(active_shorts) if active_shorts else 0
+                    if closed_count > 0:
+                        self.datastore._execute_query(conn, """
+                            UPDATE signals SET status = 'SQUEEZE_EXIT', updated_at = ?
+                            WHERE signal_type LIKE '%SHORT%' AND status = 'ACTIVE'
+                        """, (datetime.now(timezone.utc).isoformat(),))
+                        
+                # Send Urgent Discord Alert on state transition or closed positions
+                if prev_state != "BULLISH_BREAKOUT_SQUEEZE" or closed_count > 0:
+                    try:
+                        from integrations.discord_notifier import DiscordNotifier
+                        notifier = DiscordNotifier()
+                        msg = (
+                            "🚨 **URGENT ALERT: SHORT SQUEEZE EXIT TRIGGERED** 🚨\n\n"
+                            f"⚡ **Market Move:** Watchlist Average `+{avg_return:.2f}%` | BTC `+{btc_return:.2f}%` (4H)\n"
+                            f"🛡️ **Action Taken:** `{closed_count}` active SHORT position(s) closed immediately as `SQUEEZE_EXIT` to protect capital.\n"
+                            "🚫 **Short Signals:** BLOCKED across all timeframes.\n"
+                            "🚀 **Breakout Mode:** Active for Momentum LONGs.\n\n"
+                            "⚠️ *If you have manual short positions open, consider exiting or adjusting stops immediately!*"
+                        )
+                        notifier.send_message(msg)
+                    except Exception as ne:
+                        logger.error(f"Failed to send Discord Squeeze Exit alert: {ne}")
                     
                 return {'state': 'BULLISH_BREAKOUT_SQUEEZE', 'short_blocked': True, 'long_blocked': False}
                 
@@ -217,11 +239,30 @@ class MarketRegimeDetector:
                 self.datastore.set_setting("MARKET_STATE", "BEARISH_FLUSH")
                 logger.info(f"📉 Real-Time Bearish Flush Detected! Avg Watchlist Move: {avg_return:.2f}%, BTC: {btc_return:.2f}%. Long signals BLOCKED.")
                 
+                closed_count = 0
                 with self.datastore.get_connection() as conn:
-                    self.datastore._execute_query(conn, """
-                        UPDATE signals SET status = 'FLUSH_EXIT', updated_at = ?
-                        WHERE signal_type LIKE '%LONG%' AND status = 'ACTIVE'
-                    """, (datetime.now(timezone.utc).isoformat(),))
+                    active_longs = self.datastore._fetch_query(conn, "SELECT id, name FROM signals WHERE signal_type LIKE '%LONG%' AND status = 'ACTIVE'")
+                    closed_count = len(active_longs) if active_longs else 0
+                    if closed_count > 0:
+                        self.datastore._execute_query(conn, """
+                            UPDATE signals SET status = 'FLUSH_EXIT', updated_at = ?
+                            WHERE signal_type LIKE '%LONG%' AND status = 'ACTIVE'
+                        """, (datetime.now(timezone.utc).isoformat(),))
+
+                if prev_state != "BEARISH_FLUSH" or closed_count > 0:
+                    try:
+                        from integrations.discord_notifier import DiscordNotifier
+                        notifier = DiscordNotifier()
+                        msg = (
+                            "🚨 **URGENT ALERT: BEARISH FLUSH EXIT TRIGGERED** 🚨\n\n"
+                            f"⚡ **Market Move:** Watchlist Average `{avg_return:.2f}%` | BTC `{btc_return:.2f}%` (4H)\n"
+                            f"🛡️ **Action Taken:** `{closed_count}` active LONG position(s) closed immediately as `FLUSH_EXIT` to protect capital.\n"
+                            "🚫 **Long Signals:** BLOCKED across all timeframes.\n\n"
+                            "⚠️ *If you have manual long positions open, consider exiting or adjusting stops immediately!*"
+                        )
+                        notifier.send_message(msg)
+                    except Exception as ne:
+                        logger.error(f"Failed to send Discord Flush Exit alert: {ne}")
                     
                 return {'state': 'BEARISH_FLUSH', 'short_blocked': False, 'long_blocked': True}
                 
