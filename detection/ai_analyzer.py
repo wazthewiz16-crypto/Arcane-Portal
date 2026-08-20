@@ -66,22 +66,29 @@ class AssetChartAnalyzer:
                     t_dir = 'NEUTRAL'
                     neutral_votes += 1
                     
-            # Mutanabby AI resolution
-            m_sig = tf_data.get('mutanabby_sig', 0.0)
-            if m_sig == 2.0:
+            # Mutanabby AI resolution (handles numbers, floats, or string labels)
+            m_sig = tf_data.get('mutanabby_sig')
+            m_str = str(m_sig or '').strip()
+            
+            if m_sig in [2.0, 2, '2.0', '2'] or 'Strong Buy' in m_str:
                 m_label = '🟢 Strong Buy'
                 confluences.append(f"🟢 **{tf.upper()} Mutanabby Strong Buy Signal**")
-            elif m_sig == 1.0:
-                m_label = '🟢 Buy'
+            elif m_sig in [1.0, 1, '1.0', '1'] or ('Buy' in m_str and 'Strong' not in m_str):
+                m_label = '🟢 Buy Signal'
                 confluences.append(f"🟢 **{tf.upper()} Mutanabby Buy Signal**")
-            elif m_sig == -2.0:
+            elif m_sig in [-2.0, -2, '-2.0', '-2'] or 'Strong Sell' in m_str:
                 m_label = '🔴 Strong Sell'
                 confluences.append(f"🔴 **{tf.upper()} Mutanabby Strong Sell Signal**")
-            elif m_sig == -1.0:
-                m_label = '🔴 Sell'
+            elif m_sig in [-1.0, -1, '-1.0', '-1'] or ('Sell' in m_str and 'Strong' not in m_str):
+                m_label = '🔴 Sell Signal'
                 confluences.append(f"🔴 **{tf.upper()} Mutanabby Sell Signal**")
             else:
-                m_label = 'None'
+                if t_dir == 'BULLISH':
+                    m_label = '🟢 Bullish Peak (Buy Bias)'
+                elif t_dir == 'BEARISH':
+                    m_label = '🔴 Bearish Peak (Sell Bias)'
+                else:
+                    m_label = '🟡 Neutral'
                 
             # TK Cross resolution
             tk_val = tf_data.get('tk_cross', 0.0)

@@ -396,7 +396,25 @@ class MangoDataStore:
                 if rows:
                     for r in rows:
                         tf = str(r.get('timeframe')).lower()
-                        result[tf] = r
+                        result[tf] = dict(r)
+
+                    # Look back for active Mutanabby AI signals per timeframe if current row is 0
+                    for tf in ['1w', '4d', '1d', '12h', '4h', '1h', '15m']:
+                        if tf in result:
+                            m_val = result[tf].get('mutanabby_sig')
+                            if not m_val or m_val == 0.0 or str(m_val) in ['0', '0.0', 'None', '']:
+                                try:
+                                    m_rows = self._fetch_query(conn, """
+                                        SELECT mutanabby_sig FROM scrapes
+                                        WHERE UPPER(name) = ? AND LOWER(timeframe) = ?
+                                          AND mutanabby_sig IS NOT NULL AND mutanabby_sig != 0 AND mutanabby_sig != '0' AND mutanabby_sig != '0.0'
+                                        ORDER BY timestamp DESC
+                                        LIMIT 1
+                                    """, (asset_name.upper(), tf))
+                                    if m_rows and m_rows[0].get('mutanabby_sig'):
+                                        result[tf]['mutanabby_sig'] = m_rows[0]['mutanabby_sig']
+                                except Exception as me:
+                                    logger.debug(f"Mutanabby lookback query note for {asset_name} {tf}: {me}")
         except Exception as e:
             logger.error(f"Error fetching multi-timeframe scrapes for {asset_name}: {e}")
             
