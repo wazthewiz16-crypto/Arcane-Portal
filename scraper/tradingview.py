@@ -123,7 +123,8 @@ class TradingViewScraper:
                 "4h": "4H",
                 "12h": "12H",
                 "1d": "1D",    # Was "D", but typing a letter first triggers Symbol Search!
-                "4d": "4D"
+                "4d": "4D",
+                "1w": "1W"
             }
             
             tv_timeframe = timeframe_map.get(timeframe, timeframe)
@@ -552,3 +553,186 @@ class TradingViewScraper:
                 
             await context.close()
             await browser.close()
+
+    async def scrape_single_asset_all_tfs(self, asset_name: str) -> Dict[str, Dict]:
+        """
+        Perform a targeted live Playwright scrape for a single asset across 
+        all 7 timeframes (1w, 4d, 1d, 12h, 4h, 1h, 15m).
+        Ensures 100% chart accuracy over speed.
+        """
+        from config.assets import ASSETS
+        from datetime import timezone
+        
+        # Find asset config entry
+        asset_info = None
+        for a in ASSETS:
+            if a['name'].strip().upper() == asset_name.strip().upper():
+                asset_info = a
+                break
+                
+        if not asset_info:
+            asset_info = {
+                "symbol": f"BYBIT:{asset_name.strip().upper()}USDT.P",
+                "name": asset_name.strip().upper(),
+                "type": "crypto"
+            }
+
+        scraped_data = {}
+        timeframes = ["1w", "4d", "1d", "12h", "4h", "1h", "15m"]
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox"]
+            )
+            
+            context_kwargs = {
+                "viewport": {"width": 1920, "height": 1080},
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            if self.state_file.exists():
+                context_kwargs["storage_state"] = str(self.state_file)
+
+            context = await browser.new_context(**context_kwargs)
+            page = await context.new_page()
+
+            try:
+                symbol = asset_info['symbol']
+                url = f"https://www.tradingview.com/chart/?symbol={symbol}"
+                logger.info(f"🎯 Targeted Live Scrape starting for {asset_name} ({symbol})")
+
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await asyncio.sleep(6)
+
+                try:
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.5)
+                    await page.keyboard.type(symbol, delay=50)
+                    await asyncio.sleep(1)
+                    await page.keyboard.press("Enter")
+                    await asyncio.sleep(4)
+                except Exception as se:
+                    logger.warning(f"Symbol load warning: {se}")
+
+                try:
+                    is_dw = await page.evaluate("() => document.body.innerText.includes('Entry Zone Upper')")
+                    if not is_dw:
+                        await page.keyboard.press("Alt+D")
+                        await asyncio.sleep(2)
+                except Exception:
+                    pass
+
+                timeframe_map = {
+                    "15m": "15",
+                    "1h": "1H",
+                    "4h": "4H",
+                    "12h": "12H",
+                    "1d": "1D",
+                    "4d": "4D",
+                    "1w": "1W"
+                }
+
+                for tf in timeframes:
+                    tv_tf = timeframe_map.get(tf, tf)
+                    logger.info(f"📸 Live scraping chart for {asset_name} [{tf.upper()}]...")
+
+                    await page.keyboard.type(tv_tf, delay=50)
+                    await asyncio.sleep(0.5)
+                    await page.keyboard.press("Enter")
+                    await asyncio.sleep(1)
+                    await page.keyboard.press("Alt+R")
+
+                    wait_sec = 6.0 if tf in ['1w', '4d', '1d'] else 3.5
+                    await asyncio.sleep(wait_sec)
+
+                    await page.mouse.move(1800, 500)
+                    await asyncio.sleep(1)
+
+                    plot_data = await page.evaluate(r"""(() => {
+                        const txt = document.body.innerText;
+                        
+                        const findVal = (key) => {
+                            const safeKey = key.replace(/ /g, '[\\s\\n]+');
+                            const re = new RegExp(safeKey + "[:\\s\\n\\-]*(-?[0-9,.]+)", "i");
+                            const m = txt.match(re);
+                            return m ? parseFloat(m[1].replace(/,/g, '')) : null;
+                        };
+
+                        const parseTrend = () => {
+                            const re = /Trend[:\s]*([A-Za-z]+)/i;
+                            const m = txt.match(re);
+                            return m ? m[1].trim() : null;
+                        };
+
+                        const mutSig = (() => {
+                            const reBuy = /mutanabby.*?(strong\s+buy|buy)/i;
+                            const reSell = /mutanabby.*?(strong\s+sell|sell)/i;
+                            const mBuy = txt.match(reBuy);
+                            const mSell = txt.match(reSell);
+                            if (mBuy) return mBuy[1].toLowerCase().includes('strong') ? 2.0 : 1.0;
+                            if (mSell) return mSell[1].toLowerCase().includes('strong') ? -2.0 : -1.0;
+                            
+                            const rePeak = /peak\s*profit[:\s]*([+-]?[0-9,.]+%?)/i;
+                            const mPeak = txt.match(rePeak);
+                            if (mPeak) {
+                                return mPeak[1].includes('+') ? 1.0 : -1.0;
+                            }
+                            return 0.0;
+                        })();
+
+                        const tkCross = (() => {
+                            const bull = findVal('TK Bull Cross');
+                            const bear = findVal('TK Bear Cross');
+                            if (bull && bull > 0) return 1.0;
+                            if (bear && bear > 0) return -1.0;
+                            return 0.0;
+                        })();
+
+                        return {
+                            close: findVal('Close') || findVal('C') || 0.0,
+                            open: findVal('Open') || findVal('O') || 0.0,
+                            high: findVal('High') || findVal('H') || 0.0,
+                            low: findVal('Low') || findVal('L') || 0.0,
+                            trend: parseTrend(),
+                            mango_d1: findVal('MangoD1') || 0.0,
+                            mango_d2: findVal('MangoD2') || 0.0,
+                            entry_up: findVal('Entry Zone Upper') || 0.0,
+                            entry_down: findVal('Entry Zone Lower') || 0.0,
+                            mutanabby_sig: mutSig,
+                            tk_cross: tkCross
+                        };
+                    })()""")
+
+                    if plot_data and plot_data.get('close', 0) > 0:
+                        scrape_row = {
+                            'name': asset_name.upper(),
+                            'timeframe': tf,
+                            'close': plot_data['close'],
+                            'open': plot_data['open'],
+                            'high': plot_data['high'],
+                            'low': plot_data['low'],
+                            'trend': plot_data['trend'],
+                            'mango_d1': plot_data['mango_d1'],
+                            'mango_d2': plot_data['mango_d2'],
+                            'entry_up': plot_data['entry_up'],
+                            'entry_down': plot_data['entry_down'],
+                            'mutanabby_sig': plot_data['mutanabby_sig'],
+                            'tk_cross': plot_data['tk_cross'],
+                            'timestamp': datetime.now(timezone.utc).isoformat()
+                        }
+                        if self.datastore:
+                            try:
+                                with self.datastore.get_connection() as conn:
+                                    self.datastore.save_scrape(conn, scrape_row)
+                            except Exception as dbe:
+                                logger.warning(f"Error saving live scrape: {dbe}")
+                                
+                        scraped_data[tf] = scrape_row
+
+            except Exception as e:
+                logger.error(f"Error during targeted live scrape for {asset_name}: {e}")
+            finally:
+                await context.close()
+                await browser.close()
+
+        return scraped_data

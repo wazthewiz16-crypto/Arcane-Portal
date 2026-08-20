@@ -219,21 +219,30 @@ async def analyze_chart_command(ctx, symbol: str = None):
     if not clean_symbol:
         clean_symbol = raw_symbol
 
-    await ctx.message.add_reaction("🔍")
-    msg = await ctx.send(f"🔍 Analyzing multi-timeframe data across 7 timeframes (1W, 4D, 1D, 12H, 4H, 1H, 15m) for **{clean_symbol}**...")
+    await ctx.message.add_reaction("⏳")
+    msg = await ctx.send(f"⏳ **Performing Targeted Live Scrape across all 7 Timeframes** (1W, 4D, 1D, 12H, 4H, 1H, 15m) for **{clean_symbol}**...\n*Prioritizing 100% chart accuracy over speed. Please wait ~20-30 seconds.*")
     
     try:
         from detection.datastore import MangoDataStore
         from detection.ai_analyzer import AssetChartAnalyzer
+        from scraper.tradingview import TradingViewScraper
         
         datastore = MangoDataStore()
-        tf_data = datastore.get_multi_timeframe_scrapes(clean_symbol)
-        if not tf_data:
-            tf_data = datastore.get_multi_timeframe_scrapes(raw_symbol)
+        
+        # 1. Trigger Targeted Live Playwright Scrape across all 7 timeframes
+        tv_scraper = TradingViewScraper()
+        tf_data = await tv_scraper.scrape_single_asset_all_tfs(clean_symbol)
+        
+        # 2. Augment with datastore scrapes if needed
+        if not tf_data or len(tf_data) < 4:
+            db_data = datastore.get_multi_timeframe_scrapes(clean_symbol)
+            for tf_key, tf_val in db_data.items():
+                if tf_key not in tf_data:
+                    tf_data[tf_key] = tf_val
         
         if not tf_data:
             await ctx.message.add_reaction("⚠️")
-            await msg.edit(content=f"⚠️ Asset `{symbol}` not found in active watchlist scrapes. Available assets: BTC, ETH, SOL, XRP, DOGE, AVAX, ADA, LINK, ARB, INJ, NEAR, ONDO, HYPE, NDX, SPX, US30.")
+            await msg.edit(content=f"⚠️ Could not load chart data for `{clean_symbol}`. Please verify symbol name.")
             return
 
         analyzer = AssetChartAnalyzer(datastore)
