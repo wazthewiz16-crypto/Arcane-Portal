@@ -681,23 +681,29 @@ class TradingViewScraper:
                         };
 
                         const mutSig = (() => {
-                            // Extract Mutanabby AI signal or peak profit indicator
-                            if (/strong\s+sell/i.test(txt)) return -2.0;
-                            if (/strong\s+buy/i.test(txt)) return 2.0;
+                            const txtLower = txt.toLowerCase();
                             
-                            const reBuy = /mutanabby.*?(buy)/i;
-                            const reSell = /mutanabby.*?(sell)/i;
-                            const mBuy = txt.match(reBuy);
-                            const mSell = txt.match(reSell);
+                            if (txtLower.includes('strong sell')) return -2.0;
+                            if (txtLower.includes('strong buy')) return 2.0;
                             
-                            if (mSell) return -1.0;
-                            if (mBuy) return 1.0;
+                            const lines = txt.split('\n');
+                            for (let i = 0; i < lines.length; i++) {
+                                const line = lines[i].trim().toLowerCase();
+                                if (line.includes('mutanabby') || line.includes('peak profit')) {
+                                    if (line.includes('sell')) return -1.0;
+                                    if (line.includes('buy')) return 1.0;
+                                }
+                            }
                             
                             const rePeak = /peak\s*profit[:\s]*([+-]?[0-9,.]+%?)/i;
                             const mPeak = txt.match(rePeak);
                             if (mPeak) {
                                 return mPeak[1].includes('-') ? -1.0 : 1.0;
                             }
+
+                            if (txtLower.includes('sell')) return -1.0;
+                            if (txtLower.includes('buy')) return 1.0;
+
                             return 0.0;
                         })();
 

@@ -74,25 +74,20 @@ class AssetChartAnalyzer:
             m_sig = tf_data.get('mutanabby_sig')
             m_str = str(m_sig or '').strip()
             
-            if m_sig in [2.0, 2, '2.0', '2'] or 'Strong Buy' in m_str:
-                m_label = '🟢 Strong Buy'
-                confluences.append(f"🟢 **{tf.upper()} Mutanabby Strong Buy Signal**")
-            elif m_sig in [1.0, 1, '1.0', '1'] or ('Buy' in m_str and 'Strong' not in m_str):
-                m_label = '🟢 Buy Signal'
-                confluences.append(f"🟢 **{tf.upper()} Mutanabby Buy Signal**")
-            elif m_sig in [-2.0, -2, '-2.0', '-2'] or 'Strong Sell' in m_str:
+            if m_sig in [-2.0, -2, '-2.0', '-2'] or 'Strong Sell' in m_str:
                 m_label = '🔴 Strong Sell'
                 confluences.append(f"🔴 **{tf.upper()} Mutanabby Strong Sell Signal**")
             elif m_sig in [-1.0, -1, '-1.0', '-1'] or ('Sell' in m_str and 'Strong' not in m_str):
                 m_label = '🔴 Sell Signal'
                 confluences.append(f"🔴 **{tf.upper()} Mutanabby Sell Signal**")
+            elif m_sig in [2.0, 2, '2.0', '2'] or 'Strong Buy' in m_str:
+                m_label = '🟢 Strong Buy'
+                confluences.append(f"🟢 **{tf.upper()} Mutanabby Strong Buy Signal**")
+            elif m_sig in [1.0, 1, '1.0', '1'] or ('Buy' in m_str and 'Strong' not in m_str):
+                m_label = '🟢 Buy Signal'
+                confluences.append(f"🟢 **{tf.upper()} Mutanabby Buy Signal**")
             else:
-                if t_dir == 'BULLISH':
-                    m_label = '🟢 Bullish Peak (Buy Bias)'
-                elif t_dir == 'BEARISH':
-                    m_label = '🔴 Bearish Peak (Sell Bias)'
-                else:
-                    m_label = '🟡 Neutral'
+                m_label = '⚪ Neutral'
                 
             # TK Cross resolution
             tk_val = tf_data.get('tk_cross', 0.0)
