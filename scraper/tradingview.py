@@ -681,29 +681,28 @@ class TradingViewScraper:
                         };
 
                         const mutSig = (() => {
-                            const txtLower = txt.toLowerCase();
-                            
-                            if (txtLower.includes('strong sell')) return -2.0;
-                            if (txtLower.includes('strong buy')) return 2.0;
-                            
+                            let mutText = "";
                             const lines = txt.split('\n');
                             for (let i = 0; i < lines.length; i++) {
-                                const line = lines[i].trim().toLowerCase();
-                                if (line.includes('mutanabby') || line.includes('peak profit')) {
-                                    if (line.includes('sell')) return -1.0;
-                                    if (line.includes('buy')) return 1.0;
+                                const l = lines[i].trim();
+                                if (/mutanabby/i.test(l) || /peak\s*profit/i.test(l)) {
+                                    mutText += " " + l;
+                                    if (i + 1 < lines.length) mutText += " " + lines[i+1].trim();
+                                    if (i + 2 < lines.length) mutText += " " + lines[i+2].trim();
                                 }
                             }
                             
-                            const rePeak = /peak\s*profit[:\s]*([+-]?[0-9,.]+%?)/i;
-                            const mPeak = txt.match(rePeak);
+                            const mutLower = mutText.toLowerCase();
+                            if (mutLower.includes('strong sell')) return -2.0;
+                            if (mutLower.includes('strong buy')) return 2.0;
+                            if (mutLower.includes('sell')) return -1.0;
+                            if (mutLower.includes('buy')) return 1.0;
+                            
+                            const mPeak = mutText.match(/peak\s*profit[:\s]*([+-]?[0-9,.]+%?)/i);
                             if (mPeak) {
                                 return mPeak[1].includes('-') ? -1.0 : 1.0;
                             }
-
-                            if (txtLower.includes('sell')) return -1.0;
-                            if (txtLower.includes('buy')) return 1.0;
-
+                            
                             return 0.0;
                         })();
 
