@@ -45,7 +45,17 @@ except ImportError:
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None, case_insensitive=True)
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    logger.error(f"Bot command error: {error}")
+    try:
+        await ctx.send(f"⚠️ Command error: `{error}`")
+    except Exception:
+        pass
 
 @bot.event
 async def on_ready():
@@ -204,16 +214,22 @@ async def analyze_chart_command(ctx, symbol: str = None):
         await ctx.send("⚠️ Please specify an asset symbol! Example: `!analyze BTC` or `!setup ETH`")
         return
         
-    symbol = symbol.strip().upper()
+    raw_symbol = symbol.strip().upper()
+    clean_symbol = raw_symbol.replace('BYBIT:', '').replace('OANDA:', '').replace('CAPITALCOM:', '').replace('.P', '').replace('USDT', '').replace('USD', '')
+    if not clean_symbol:
+        clean_symbol = raw_symbol
+
     await ctx.message.add_reaction("🔍")
-    msg = await ctx.send(f"🔍 Analyzing multi-timeframe data across 7 timeframes (1W, 4D, 1D, 12H, 4H, 1H, 15m) for **{symbol}**...")
+    msg = await ctx.send(f"🔍 Analyzing multi-timeframe data across 7 timeframes (1W, 4D, 1D, 12H, 4H, 1H, 15m) for **{clean_symbol}**...")
     
     try:
         from detection.datastore import MangoDataStore
         from detection.ai_analyzer import AssetChartAnalyzer
         
         datastore = MangoDataStore()
-        tf_data = datastore.get_multi_timeframe_scrapes(symbol)
+        tf_data = datastore.get_multi_timeframe_scrapes(clean_symbol)
+        if not tf_data:
+            tf_data = datastore.get_multi_timeframe_scrapes(raw_symbol)
         
         if not tf_data:
             await ctx.message.add_reaction("⚠️")
