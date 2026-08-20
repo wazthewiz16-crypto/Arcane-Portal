@@ -69,40 +69,53 @@ class AssetChartAnalyzer:
             # Mutanabby AI resolution
             m_sig = tf_data.get('mutanabby_sig', 0.0)
             if m_sig == 2.0:
-                m_label = 'Strong Buy'
-                if tf in ['1d', '4h', '1h']: confluences.append(f"🟢 {tf.upper()} Mutanabby Strong Buy Signal")
+                m_label = '🟢 Strong Buy'
+                confluences.append(f"🟢 **{tf.upper()} Mutanabby Strong Buy Signal**")
             elif m_sig == 1.0:
-                m_label = 'Buy'
-                if tf in ['1d', '4h', '1h']: confluences.append(f"🟢 {tf.upper()} Mutanabby Buy Signal")
+                m_label = '🟢 Buy'
+                confluences.append(f"🟢 **{tf.upper()} Mutanabby Buy Signal**")
             elif m_sig == -2.0:
-                m_label = 'Strong Sell'
-                if tf in ['1d', '4h', '1h']: confluences.append(f"🔴 {tf.upper()} Mutanabby Strong Sell Signal")
+                m_label = '🔴 Strong Sell'
+                confluences.append(f"🔴 **{tf.upper()} Mutanabby Strong Sell Signal**")
             elif m_sig == -1.0:
-                m_label = 'Sell'
-                if tf in ['1d', '4h', '1h']: confluences.append(f"🔴 {tf.upper()} Mutanabby Sell Signal")
+                m_label = '🔴 Sell'
+                confluences.append(f"🔴 **{tf.upper()} Mutanabby Sell Signal**")
             else:
-                m_label = 'Neutral'
+                m_label = 'None'
                 
             # TK Cross resolution
             tk_val = tf_data.get('tk_cross', 0.0)
             if tk_val == 1.0:
-                tk_label = 'Bull Cross'
-                if tf in ['4h', '1h']: confluences.append(f"🟢 {tf.upper()} Mango TK Bull Cross")
+                tk_label = '🟢 Bull Cross'
+                confluences.append(f"🟢 **{tf.upper()} Mango TK Bull Cross**")
             elif tk_val == -1.0:
-                tk_label = 'Bear Cross'
-                if tf in ['4h', '1h']: confluences.append(f"🔴 {tf.upper()} Mango TK Bear Cross")
+                tk_label = '🔴 Bear Cross'
+                confluences.append(f"🔴 **{tf.upper()} Mango TK Bear Cross**")
             else:
                 tk_label = 'None'
                 
             grid[tf] = {'trend': t_dir, 'mutanabby': m_label, 'tk_cross': tk_label}
 
-        # 2. Detect Contradictions & Negatives
-        # Check macro vs local trend clash
+        # --- Trend & Ribbon Confluences ---
+        if long_votes == 7:
+            confluences.append("🟢 **Full 7-Timeframe Bullish Ribbon Alignment** (1W through 15m all BULLISH)")
+        elif long_votes >= 5:
+            confluences.append(f"🟢 **Strong Multi-Timeframe Bullish Consensus** ({long_votes}/7 Timeframes BULLISH)")
+        elif short_votes == 7:
+            confluences.append("🔴 **Full 7-Timeframe Bearish Ribbon Alignment** (1W through 15m all BEARISH)")
+        elif short_votes >= 5:
+            confluences.append(f"🔴 **Strong Multi-Timeframe Bearish Consensus** ({short_votes}/7 Timeframes BEARISH)")
+
+        # Macro + Intraday Alignment
         w1_dir = grid.get('1w', {}).get('trend')
-        d4_dir = grid.get('4d', {}).get('trend')
         d1_dir = grid.get('1d', {}).get('trend')
         h4_dir = grid.get('4h', {}).get('trend')
-        
+        if w1_dir == 'BULLISH' and d1_dir == 'BULLISH' and h4_dir == 'BULLISH':
+            confluences.append("🟢 **HTF & LTF Trend Confluence:** 1W Weekly, 1D Daily, and 4H ribbons are perfectly aligned BULLISH.")
+        elif w1_dir == 'BEARISH' and d1_dir == 'BEARISH' and h4_dir == 'BEARISH':
+            confluences.append("🔴 **HTF & LTF Trend Confluence:** 1W Weekly, 1D Daily, and 4H ribbons are perfectly aligned BEARISH.")
+
+        # 2. Detect Contradictions & Negatives
         if w1_dir in ['BEARISH'] and h4_dir in ['BULLISH']:
             contradictions.append("⚠️ **Macro vs Intraday Clash:** 1W Weekly chart is BEARISH while 4H is BULLISH (counter-trend rally risk).")
         elif w1_dir in ['BULLISH'] and h4_dir in ['BEARISH']:
@@ -121,8 +134,13 @@ class AssetChartAnalyzer:
         elif 'Sell' in m_4h and 'Buy' in m_1d:
             contradictions.append("⚠️ **Mutanabby Divergence:** 4H Mutanabby SELL clashes with lagging 1D Mutanabby BUY.")
 
-        # Check Overextension
+        # Check Overextension with explicit timeframe tag
+        ltf_tf_name = '4H'
         ltf_ref = timeframes_data.get('4h') or timeframes_data.get('1h') or timeframes_data.get('15m')
+        if timeframes_data.get('4h'): ltf_tf_name = '4H'
+        elif timeframes_data.get('1h'): ltf_tf_name = '1H'
+        elif timeframes_data.get('15m'): ltf_tf_name = '15m'
+
         price = 0.0
         e_up = 0.0
         e_down = 0.0
@@ -134,9 +152,9 @@ class AssetChartAnalyzer:
             if price > 0 and e_up > 0 and e_down > 0:
                 zone_w = e_up - e_down
                 if price > e_up + (zone_w * 0.5):
-                    contradictions.append(f"⚠️ **Price Overextended:** Current price (${price:.4f}) is running >50% past upper zone limit (${e_up:.4f}).")
+                    contradictions.append(f"⚠️ **Price Overextended ({ltf_tf_name} Timeframe):** Current price (${price:.2f}) is running >50% past upper {ltf_tf_name} entry zone limit (${e_up:.2f}). Expect pullback before entry.")
                 elif price < e_down - (zone_w * 0.5):
-                    contradictions.append(f"⚠️ **Price Overextended:** Current price (${price:.4f}) is running >50% below lower zone limit (${e_down:.4f}).")
+                    contradictions.append(f"⚠️ **Price Overextended ({ltf_tf_name} Timeframe):** Current price (${price:.2f}) is running >50% below lower {ltf_tf_name} entry zone limit (${e_down:.2f}). Expect bounce before entry.")
 
         # 3. Determine Overall Direction Bias & Setup Score
         if long_votes >= 4 and short_votes <= 2:
@@ -166,7 +184,7 @@ class AssetChartAnalyzer:
         else:
             tier = "🔴 NO TRADE (High Risk / Conflict)"
 
-        # 4. Formulate Suggested Trade Plan
+        # 4. Formulate Suggested Trade Plan with explicit Anchor Timeframe
         plan = {}
         if direction in ['LONG', 'SHORT'] and price > 0 and e_up > 0 and e_down > 0:
             if direction == 'LONG':
@@ -182,7 +200,8 @@ class AssetChartAnalyzer:
                         'sl': sl,
                         'tp1': tp1,
                         'tp2': tp2,
-                        'rr': 2.5
+                        'rr': 2.5,
+                        'anchor_tf': ltf_tf_name
                     }
             else:  # SHORT
                 entry_price = price
@@ -197,7 +216,8 @@ class AssetChartAnalyzer:
                         'sl': sl,
                         'tp1': tp1,
                         'tp2': tp2,
-                        'rr': 2.5
+                        'rr': 2.5,
+                        'anchor_tf': ltf_tf_name
                     }
 
         return {

@@ -273,6 +273,7 @@ async def analyze_chart_command(ctx, symbol: str = None):
         
         plan = report['trade_plan']
         if plan:
+            anchor_tf = plan.get('anchor_tf', '4H')
             plan_str = (
                 f"• **Direction:** `{plan['direction']}`\n"
                 f"• **Entry Price:** `${plan['entry']:.4f}`\n"
@@ -281,7 +282,7 @@ async def analyze_chart_command(ctx, symbol: str = None):
                 f"• **Target TP2 (+2.5R):** `${plan['tp2']:.4f}`\n"
                 f"• **Risk:Reward:** `{plan['rr']}:1`"
             )
-            embed.add_field(name="🎯 Suggested Trade Plan", value=plan_str, inline=False)
+            embed.add_field(name=f"🎯 Suggested Trade Plan (Anchor: {anchor_tf} Timeframe)", value=plan_str, inline=False)
         else:
             embed.add_field(name="🎯 Suggested Trade Plan", value="*No trade recommended due to timeframe conflict / chop.*", inline=False)
             
