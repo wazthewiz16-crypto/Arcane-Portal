@@ -81,25 +81,6 @@ class AssetChartAnalyzer:
                     t_dir = 'NEUTRAL'
                     neutral_votes += 1
                     
-            # Mutanabby AI resolution (handles numbers, floats, or string labels)
-            m_sig = tf_data.get('mutanabby_sig')
-            m_str = str(m_sig or '').strip()
-            
-            if m_sig in [-2.0, -2, '-2.0', '-2'] or 'Strong Sell' in m_str:
-                m_label = '🔴 Strong Sell'
-                confluences.append(f"🔴 **{tf.upper()} Mutanabby Strong Sell Signal**")
-            elif m_sig in [-1.0, -1, '-1.0', '-1'] or ('Sell' in m_str and 'Strong' not in m_str):
-                m_label = '🔴 Sell Signal'
-                confluences.append(f"🔴 **{tf.upper()} Mutanabby Sell Signal**")
-            elif m_sig in [2.0, 2, '2.0', '2'] or 'Strong Buy' in m_str:
-                m_label = '🟢 Strong Buy'
-                confluences.append(f"🟢 **{tf.upper()} Mutanabby Strong Buy Signal**")
-            elif m_sig in [1.0, 1, '1.0', '1'] or ('Buy' in m_str and 'Strong' not in m_str):
-                m_label = '🟢 Buy Signal'
-                confluences.append(f"🟢 **{tf.upper()} Mutanabby Buy Signal**")
-            else:
-                m_label = '⚪ Neutral'
-                
             # TK Cross resolution
             tk_val = tf_data.get('tk_cross', 0.0)
             if tk_val == 1.0:
@@ -111,7 +92,51 @@ class AssetChartAnalyzer:
             else:
                 tk_label = 'None'
                 
-            grid[tf] = {'trend': t_dir, 'mutanabby': m_label, 'tk_cross': tk_label}
+            grid[tf] = {'trend': t_dir, 'tk_cross': tk_label}
+
+        # --- Mango Dashboard Integration ---
+        mango_dash_info = {}
+        if self.datastore:
+            try:
+                with self.datastore.get_connection() as conn:
+                    m_rows = self.datastore._fetch_query(conn, """
+                        SELECT market_trend, market_volatility, assets_json
+                        FROM mango_scrapes
+                        ORDER BY timestamp DESC
+                        LIMIT 1
+                    """)
+                    if m_rows:
+                        row = m_rows[0]
+                        m_trend = str(row.get('market_trend', 'NEUTRAL')).upper()
+                        m_vol = float(row.get('market_volatility', 50.0))
+                        assets_json = row.get('assets_json')
+                        asset_trend = 'NEUTRAL'
+                        asset_vol = 50.0
+                        
+                        if assets_json:
+                            import json
+                            try:
+                                assets = json.loads(assets_json)
+                                a_data = assets.get(asset_name.upper(), {})
+                                asset_trend = str(a_data.get('trend', 'NEUTRAL')).upper()
+                                asset_vol = float(a_data.get('volatility', 50.0))
+                            except Exception:
+                                pass
+                                
+                        mango_dash_info = {
+                            'market_trend': m_trend,
+                            'market_volatility': m_vol,
+                            'asset_trend': asset_trend,
+                            'asset_volatility': asset_vol
+                        }
+            except Exception as me:
+                logger.warning(f"Failed to fetch Mango Dashboard data in AI Analyzer: {me}")
+
+        # Mango Dashboard Confluences
+        if mango_dash_info.get('asset_trend') == 'LONG':
+            confluences.append(f"🥭 **Mango Dashboard Confluence:** {asset_name.upper()} is flagged **LONG** on Mango Dashboard.")
+        elif mango_dash_info.get('asset_trend') == 'SHORT':
+            confluences.append(f"🥭 **Mango Dashboard Confluence:** {asset_name.upper()} is flagged **SHORT** on Mango Dashboard.")
 
         # --- Trend & Ribbon Confluences ---
         if long_votes == 7:
@@ -243,6 +268,7 @@ class AssetChartAnalyzer:
             'score': round(score, 1),
             'tier': tier,
             'grid': grid,
+            'mango_dashboard': mango_dash_info,
             'confluences': confluences if confluences else ["None detected"],
             'contradictions': contradictions if contradictions else ["None — smooth timeframe alignment!"],
             'trade_plan': plan

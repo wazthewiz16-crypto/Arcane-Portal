@@ -268,12 +268,20 @@ async def analyze_chart_command(ctx, symbol: str = None):
         for tf in ['1w', '4d', '1d', '12h', '4h', '1h', '15m']:
             item = grid.get(tf, {})
             t = item.get('trend', 'N/A')
-            m = item.get('mutanabby', 'None')
             t_icon = "🟢" if t == 'BULLISH' else ("🔴" if t == 'BEARISH' else "🟡")
-            grid_str += f"`{tf.upper():4s}`: {t_icon} **{t:7s}** | Mutanabby: `{m}`\n"
+            grid_str += f"`{tf.upper():4s}`: {t_icon} **{t}**\n"
             
-        embed.add_field(name="🌐 Multi-Timeframe Alignment Grid", value=grid_str, inline=False)
+        embed.add_field(name="🌐 Multi-Timeframe Ribbon Grid", value=grid_str, inline=False)
         
+        dash = report.get('mango_dashboard', {})
+        if dash:
+            dash_str = (
+                f"• **Asset Trend Badge:** `{dash.get('asset_trend', 'NEUTRAL')}`\n"
+                f"• **Global Market Trend:** `{dash.get('market_trend', 'NEUTRAL')}`\n"
+                f"• **Market Volatility Score:** `{dash.get('market_volatility', 50):.0f}`"
+            )
+            embed.add_field(name="🥭 Mango Premium Dashboard Status", value=dash_str, inline=False)
+
         confs_str = "\n".join(report['confluences'])
         embed.add_field(name="🟢 Bullish / Confirming Confluences", value=confs_str, inline=False)
         
