@@ -233,7 +233,15 @@ Arcane-Portal/
 
 ## Changelog
 
-**Latest Update:** 2026-08-19
+**Latest Update:** 2026-08-20
+
+- **Discord AI Multi-Timeframe Chart Analyzer (`!analyze <symbol>`) (NEW)**:
+  - 🔍 **Interactive Multi-Timeframe Diagnostic Command:** Type `!analyze BTC` (or `!setup`, `!scan`) in Discord to trigger an instant AI multi-timeframe diagnostic analysis across all 7 timeframes (`1W`, `4D`, `1D`, `12H`, `4H`, `1H`, `15m`).
+  - 🌐 **Multi-Timeframe Alignment Grid:** Maps ribbon trends and Mutanabby AI signals across all 7 timeframes.
+  - 🟢 **Confluences & Contradictions:** Dynamically isolates confirming technical flags (Mutanabby `Buy`/`Sell`, TK Crosses) and highlights chart contradictions/negatives (macro vs intraday clashes, overextension).
+  - 🎯 **Suggested Trade Plan & Rating:** Formulates optimal Entry Price, Stop Loss, TP1 (+1.2R), TP2 (+2.5R), R:R ratio, overall setup score (0–100), and Quality Tier (`Tier A+ Ultra`, `Tier A`, `Tier B`, `NO TRADE`).
+
+**Previous Update:** 2026-08-19
 
 - **Real-Time Market Velocity & Short-Squeeze Engine (NEW)**:
   - 🚀 **Real-Time Short-Squeeze Detection:** Calculates 4-hour rolling watchlist returns on every 15-minute scrape interval. When watchlist moves $\ge +2.5\%$ in 4h OR BTC moves $\ge +3.0\%$, the system declares `BULLISH_BREAKOUT_SQUEEZE`, instantly blocks all SHORT signals, and executes immediate `SQUEEZE_EXIT` updates on active shorts to prevent drawdowns.
