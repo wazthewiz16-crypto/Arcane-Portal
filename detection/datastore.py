@@ -362,6 +362,45 @@ class MangoDataStore:
                     )
                 """)
 
+    def get_multi_timeframe_scrapes(self, asset_name: str) -> Dict[str, Dict]:
+        """Fetch the most recent scrape for each timeframe for a specific asset."""
+        result = {}
+        try:
+            with self.get_connection() as conn:
+                from detection.datastore import USE_POSTGRES
+                if USE_POSTGRES:
+                    rows = self._fetch_query(conn, """
+                        SELECT DISTINCT ON (timeframe)
+                            timeframe, close, open, high, low,
+                            mango_d1, mango_d2, entry_up, entry_down,
+                            mutanabby_sig, tk_cross, trend, timestamp
+                        FROM scrapes
+                        WHERE UPPER(name) = ?
+                        ORDER BY timeframe, timestamp DESC
+                    """, (asset_name.upper(),))
+                else:
+                    rows = self._fetch_query(conn, """
+                        SELECT s1.timeframe, s1.close, s1.open, s1.high, s1.low,
+                               s1.mango_d1, s1.mango_d2, s1.entry_up, s1.entry_down,
+                               s1.mutanabby_sig, s1.tk_cross, s1.trend, s1.timestamp
+                        FROM scrapes s1
+                        WHERE UPPER(s1.name) = ?
+                          AND s1.timestamp = (
+                              SELECT MAX(s2.timestamp) FROM scrapes s2
+                              WHERE UPPER(s2.name) = UPPER(s1.name)
+                                AND s2.timeframe = s1.timeframe
+                          )
+                    """, (asset_name.upper(),))
+                    
+                if rows:
+                    for r in rows:
+                        tf = str(r.get('timeframe')).lower()
+                        result[tf] = r
+        except Exception as e:
+            logger.error(f"Error fetching multi-timeframe scrapes for {asset_name}: {e}")
+            
+        return result
+
     def get_setting(self, key, default_value=None):
         """Get a system setting value"""
         with self.get_connection() as conn:

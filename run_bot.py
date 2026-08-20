@@ -197,6 +197,89 @@ async def trigger_researcher(ctx):
         await ctx.message.add_reaction("❌")
         await msg.edit(content=f"❌ Error running Strategy Researcher: `{e}`")
 
+@bot.command(name="analyze", aliases=["setup", "chart", "scan"])
+async def analyze_chart_command(ctx, symbol: str = None):
+    """Scrape and analyze multi-timeframe chart data for an asset"""
+    if not symbol:
+        await ctx.send("⚠️ Please specify an asset symbol! Example: `!analyze BTC` or `!setup ETH`")
+        return
+        
+    symbol = symbol.strip().upper()
+    await ctx.message.add_reaction("🔍")
+    msg = await ctx.send(f"🔍 Analyzing multi-timeframe data across 7 timeframes (1W, 4D, 1D, 12H, 4H, 1H, 15m) for **{symbol}**...")
+    
+    try:
+        from detection.datastore import MangoDataStore
+        from detection.ai_analyzer import AssetChartAnalyzer
+        
+        datastore = MangoDataStore()
+        tf_data = datastore.get_multi_timeframe_scrapes(symbol)
+        
+        if not tf_data:
+            await ctx.message.add_reaction("⚠️")
+            await msg.edit(content=f"⚠️ Asset `{symbol}` not found in active watchlist scrapes. Available assets: BTC, ETH, SOL, XRP, DOGE, AVAX, ADA, LINK, ARB, INJ, NEAR, ONDO, HYPE, NDX, SPX, US30.")
+            return
+
+        analyzer = AssetChartAnalyzer(datastore)
+        report = analyzer.analyze_asset_chart(symbol, tf_data)
+        
+        score = report['score']
+        if report['direction'] == 'LONG':
+            color = 0x2ECC71  # Emerald Green
+        elif report['direction'] == 'SHORT':
+            color = 0xE74C3C  # Crimson Red
+        else:
+            color = 0xF39C12  # Amber Yellow
+            
+        embed = discord.Embed(
+            title=f"📊 Multi-Timeframe AI Diagnostic Report: {symbol}",
+            description=f"**Action Bias:** `{report['direction']}` | **Score:** `{score}/100` | **Tier:** {report['tier']}",
+            color=color,
+            timestamp=ctx.message.created_at
+        )
+        
+        grid = report['grid']
+        grid_str = ""
+        for tf in ['1w', '4d', '1d', '12h', '4h', '1h', '15m']:
+            item = grid.get(tf, {})
+            t = item.get('trend', 'N/A')
+            m = item.get('mutanabby', 'None')
+            t_icon = "🟢" if t == 'BULLISH' else ("🔴" if t == 'BEARISH' else "🟡")
+            grid_str += f"`{tf.upper():4s}`: {t_icon} **{t:7s}** | Mutanabby: `{m}`\n"
+            
+        embed.add_field(name="🌐 Multi-Timeframe Alignment Grid", value=grid_str, inline=False)
+        
+        confs_str = "\n".join(report['confluences'])
+        embed.add_field(name="🟢 Bullish / Confirming Confluences", value=confs_str, inline=False)
+        
+        contras_str = "\n".join(report['contradictions'])
+        embed.add_field(name="⚠️ Contradictions & Chart Negatives", value=contras_str, inline=False)
+        
+        plan = report['trade_plan']
+        if plan:
+            plan_str = (
+                f"• **Direction:** `{plan['direction']}`\n"
+                f"• **Entry Price:** `${plan['entry']:.4f}`\n"
+                f"• **Stop Loss:** `${plan['sl']:.4f}`\n"
+                f"• **Partial TP1 (+1.2R):** `${plan['tp1']:.4f}`\n"
+                f"• **Target TP2 (+2.5R):** `${plan['tp2']:.4f}`\n"
+                f"• **Risk:Reward:** `{plan['rr']}:1`"
+            )
+            embed.add_field(name="🎯 Suggested Trade Plan", value=plan_str, inline=False)
+        else:
+            embed.add_field(name="🎯 Suggested Trade Plan", value="*No trade recommended due to timeframe conflict / chop.*", inline=False)
+            
+        embed.set_footer(text="Arcane Portal AI Chart Analyzer")
+        
+        await ctx.message.add_reaction("✅")
+        await msg.edit(content="", embed=embed)
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"Error executing !analyze command: {e}\n{traceback.format_exc()}")
+        await ctx.message.add_reaction("❌")
+        await msg.edit(content=f"❌ Error analyzing chart for `{symbol}`: `{e}`")
+
 @bot.command(name="brief")
 async def trigger_morning_brief(ctx):
     """Trigger Morning Trading Brief manually"""
