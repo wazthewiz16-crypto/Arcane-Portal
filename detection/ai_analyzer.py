@@ -41,30 +41,34 @@ class AssetChartAnalyzer:
             d1 = tf_data.get('mango_d1', 0.0)
             d2 = tf_data.get('mango_d2', 0.0)
             trend_str = str(tf_data.get('trend') or '')
+            m_sig = tf_data.get('mutanabby_sig')
+            m_str = str(m_sig or '').strip()
             
-            # Trend direction resolution
-            if close > 0 and d1 > 0 and d2 > 0:
-                ribbon_top = max(d1, d2)
-                ribbon_bottom = min(d1, d2)
-                if close > ribbon_top:
-                    t_dir = 'BULLISH'
-                    long_votes += 1
-                elif close < ribbon_bottom:
-                    t_dir = 'BEARISH'
-                    short_votes += 1
-                else:
-                    t_dir = 'NEUTRAL'
-                    neutral_votes += 1
+            # Trend direction resolution:
+            # 1. Scraped trend string ('Bearish', 'Bullish', 'SHORT', 'LONG')
+            # 2. Mutanabby signal (Sell/Strong Sell = BEARISH, Buy/Strong Buy = BULLISH)
+            # 3. Mango Ribbon D1 vs D2 relationship (d1 < d2 = BEARISH red ribbon, d1 > d2 = BULLISH green ribbon)
+            if 'Bearish' in trend_str or 'SHORT' in trend_str or 'Bear' in trend_str:
+                t_dir = 'BEARISH'
+                short_votes += 1
+            elif 'Bullish' in trend_str or 'LONG' in trend_str or 'Bull' in trend_str:
+                t_dir = 'BULLISH'
+                long_votes += 1
+            elif m_sig in [-1.0, -2.0, '-1.0', '-2.0', -1, -2] or 'Sell' in m_str:
+                t_dir = 'BEARISH'
+                short_votes += 1
+            elif m_sig in [1.0, 2.0, '1.0', '2.0', 1, 2] or 'Buy' in m_str:
+                t_dir = 'BULLISH'
+                long_votes += 1
+            elif d1 > 0 and d2 > 0 and d1 < d2:
+                t_dir = 'BEARISH'
+                short_votes += 1
+            elif d1 > 0 and d2 > 0 and d1 > d2:
+                t_dir = 'BULLISH'
+                long_votes += 1
             else:
-                if 'Bullish' in trend_str or 'LONG' in trend_str:
-                    t_dir = 'BULLISH'
-                    long_votes += 1
-                elif 'Bearish' in trend_str or 'SHORT' in trend_str:
-                    t_dir = 'BEARISH'
-                    short_votes += 1
-                else:
-                    t_dir = 'NEUTRAL'
-                    neutral_votes += 1
+                t_dir = 'NEUTRAL'
+                neutral_votes += 1
                     
             # Mutanabby AI resolution (handles numbers, floats, or string labels)
             m_sig = tf_data.get('mutanabby_sig')

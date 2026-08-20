@@ -598,12 +598,26 @@ class TradingViewScraper:
             page = await context.new_page()
 
             try:
+                import os
+                import re
+                from config import settings
+                
                 symbol = asset_info['symbol']
-                url = f"https://www.tradingview.com/chart/?symbol={symbol}"
-                logger.info(f"🎯 Targeted Live Scrape starting for {asset_name} ({symbol})")
+                layout_id = settings.LAYOUTS.get('default') or os.getenv("TRADINGVIEW_LAYOUT_ID", "")
+                if layout_id and 'tradingview.com/chart/' in str(layout_id):
+                    m = re.search(r'chart/([^/]+)', str(layout_id))
+                    if m:
+                        layout_id = m.group(1)
+
+                if layout_id:
+                    url = f"https://www.tradingview.com/chart/{layout_id}/?symbol={symbol}"
+                else:
+                    url = f"https://www.tradingview.com/chart/?symbol={symbol}"
+
+                logger.info(f"🎯 Targeted Live Scrape starting for {asset_name} ({symbol}) - URL: {url}")
 
                 await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                await asyncio.sleep(6)
+                await asyncio.sleep(8)
 
                 try:
                     await page.keyboard.press("Escape")
@@ -643,7 +657,8 @@ class TradingViewScraper:
                     await asyncio.sleep(1)
                     await page.keyboard.press("Alt+R")
 
-                    wait_sec = 6.0 if tf in ['1w', '4d', '1d'] else 3.5
+                    # Generous render wait time for 100% chart accuracy
+                    wait_sec = 8.0 if tf in ['1w', '4d', '1d'] else 4.5
                     await asyncio.sleep(wait_sec)
 
                     await page.mouse.move(1800, 500)
@@ -666,17 +681,22 @@ class TradingViewScraper:
                         };
 
                         const mutSig = (() => {
-                            const reBuy = /mutanabby.*?(strong\s+buy|buy)/i;
-                            const reSell = /mutanabby.*?(strong\s+sell|sell)/i;
+                            // Extract Mutanabby AI signal or peak profit indicator
+                            if (/strong\s+sell/i.test(txt)) return -2.0;
+                            if (/strong\s+buy/i.test(txt)) return 2.0;
+                            
+                            const reBuy = /mutanabby.*?(buy)/i;
+                            const reSell = /mutanabby.*?(sell)/i;
                             const mBuy = txt.match(reBuy);
                             const mSell = txt.match(reSell);
-                            if (mBuy) return mBuy[1].toLowerCase().includes('strong') ? 2.0 : 1.0;
-                            if (mSell) return mSell[1].toLowerCase().includes('strong') ? -2.0 : -1.0;
+                            
+                            if (mSell) return -1.0;
+                            if (mBuy) return 1.0;
                             
                             const rePeak = /peak\s*profit[:\s]*([+-]?[0-9,.]+%?)/i;
                             const mPeak = txt.match(rePeak);
                             if (mPeak) {
-                                return mPeak[1].includes('+') ? 1.0 : -1.0;
+                                return mPeak[1].includes('-') ? -1.0 : 1.0;
                             }
                             return 0.0;
                         })();
