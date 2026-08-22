@@ -124,6 +124,7 @@ class TradingViewScraper:
                 "4h": "4H",
                 "12h": "12H",
                 "1d": "1D",    # Was "D", but typing a letter first triggers Symbol Search!
+                "2d": "2D",
                 "4d": "4D",
                 "1w": "1W"
             }
@@ -579,7 +580,7 @@ class TradingViewScraper:
             }
 
         scraped_data = {}
-        timeframes = ["1w", "4d", "1d", "12h", "4h", "1h", "15m"]
+        timeframes = ["1w", "4d", "2d", "1d", "12h", "4h", "1h", "15m"]
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -643,6 +644,7 @@ class TradingViewScraper:
                     "4h": "4H",
                     "12h": "12H",
                     "1d": "1D",
+                    "2d": "2D",
                     "4d": "4D",
                     "1w": "1W"
                 }

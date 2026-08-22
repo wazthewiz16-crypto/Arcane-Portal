@@ -45,6 +45,7 @@ SCRAPE_INTERVALS = {
     "4h": 240,
     "12h": 720,
     "1d": 1440,
+    "2d": 2880,
     "4d": 5760,
     "1w": 10080
 }
@@ -55,6 +56,7 @@ LAYOUTS = {
     "default": os.getenv("TRADINGVIEW_LAYOUT_ID", ""),
     "1w": os.getenv("TRADINGVIEW_LAYOUT_1W", ""),
     "4d": os.getenv("TRADINGVIEW_LAYOUT_4D", ""),
+    "2d": os.getenv("TRADINGVIEW_LAYOUT_2D", ""),
     "1d": os.getenv("TRADINGVIEW_LAYOUT_1D", ""),
     "12h": os.getenv("TRADINGVIEW_LAYOUT_12H", ""),
     "4h": os.getenv("TRADINGVIEW_LAYOUT_4H", ""),

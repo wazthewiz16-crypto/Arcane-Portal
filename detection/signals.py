@@ -488,12 +488,20 @@ class MangoSignalDetector:
             sig_direction = 'LONG' if 'LONG' in signal['signal_type'].upper() else 'SHORT'
             is_scalp = 'SCALP' in signal['signal_type'].upper()
             
-            # 1. Global Trend Opposite-Trend Blocking
-            if sig_direction == 'LONG' and market_trend == 'SHORT':
+            # 1. Global Trend Opposite-Trend Blocking & Ultra-Selective Bull Market Short Guard
+            if sig_direction == 'SHORT' and (market_trend == 'LONG' or str(self.datastore.get_setting("MARKET_STATE", "")).upper() in ['BULLISH_BREAKOUT_SQUEEZE', 'TRENDING_BULLISH']):
+                # Block short setups UNLESS Mango Dashboard trend is explicitly SHORT AND MTF bearish confirmed
+                strict_short_ok = False
+                if confluence:
+                    t_badge = str(confluence.get('trend', 'NEUTRAL')).upper()
+                    mtf_bear = confluence.get('mtf_bearish', False)
+                    if t_badge == 'SHORT' and mtf_bear:
+                        strict_short_ok = True
+                if not strict_short_ok:
+                    logger.info(f"🚫 Bull Market Short Guard BLOCKED: {asset_name} SHORT signal (Prioritizing Longs in Bullish / Mango LONG regime).")
+                    return None
+            elif sig_direction == 'LONG' and market_trend == 'SHORT':
                 logger.info(f"🚫 Mango Global Confluence BLOCKED: {asset_name} LONG signal fights SHORT overall market trend ({market_trend})!")
-                return None
-            elif sig_direction == 'SHORT' and market_trend == 'LONG':
-                logger.info(f"🚫 Mango Global Confluence BLOCKED: {asset_name} SHORT signal fights LONG overall market trend ({market_trend})!")
                 return None
                 
             # Get cached individual confluence details
@@ -681,9 +689,13 @@ class MangoSignalDetector:
         combinations = [
             ('1w', '1d'),   # Weekly/Daily swing
             ('4d', '1d'),   # 4D/Daily swing
+            ('4d', '2d'),   # 4D/2D macro trend ride
+            ('2d', '1d'),   # 2D/1D macro trend ride
             ('1w', '4h'),   # Weekly/4H swing
             ('4d', '4h'),   # 4D/4H swing
+            ('2d', '4h'),   # 2D/4H swing
             ('1d', '4h'),   # Daily/4H swing — primary swing combo
+            ('2d', '1h'),   # 2D/1H swing
             ('1d', '1h'),   # Daily/1H swing
             ('12h', '1h'),  # 12H/1H swing
         ]
@@ -1540,8 +1552,11 @@ class MangoSignalDetector:
             if risk <= 0:
                 return None
             
-            # TP based on timeframe-specific RR ratio (at least +2.2R for swings, +1.8R for scalps)
-            rr_target = max(rr_ratio, 2.2 if not is_scalp else 1.8)
+            # TP based on timeframe-specific RR ratio (at least +3.5R for macro trend-riding Longs with confluence, +2.2R standard swing)
+            if not is_scalp and has_confluence:
+                rr_target = max(rr_ratio, 3.5)
+            else:
+                rr_target = max(rr_ratio, 2.2 if not is_scalp else 1.8)
             take_profit = entry_price + (risk * rr_target)
             # Partial TP1 at +1.2R (secures partial profit, locks breakeven+)
             partial_tp = entry_price + (risk * 1.2)

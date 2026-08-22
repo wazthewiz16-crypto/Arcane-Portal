@@ -21,7 +21,7 @@ class AssetChartAnalyzer:
         """
         Analyze multi-timeframe chart data and return a structured diagnostic report.
         """
-        tf_order = ['1w', '4d', '1d', '12h', '4h', '1h', '15m']
+        tf_order = ['1w', '4d', '2d', '1d', '12h', '4h', '1h', '15m']
         grid = {}
         confluences = []
         contradictions = []

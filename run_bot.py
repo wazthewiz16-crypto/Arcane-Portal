@@ -265,7 +265,7 @@ async def analyze_chart_command(ctx, symbol: str = None):
         
         grid = report['grid']
         grid_str = ""
-        for tf in ['1w', '4d', '1d', '12h', '4h', '1h', '15m']:
+        for tf in ['1w', '4d', '2d', '1d', '12h', '4h', '1h', '15m']:
             item = grid.get(tf, {})
             t = item.get('trend', 'N/A')
             t_icon = "🟢" if t == 'BULLISH' else ("🔴" if t == 'BEARISH' else "🟡")
